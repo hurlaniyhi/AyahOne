@@ -77,7 +77,7 @@ const emptyBucket = (): BucketStats => ({ hasanat: 0, verses: 0, timeSec: 0, pag
 
 const DEFAULT_SETTINGS: Settings = {
   themeMode: 'system',
-  accent: 'purple',
+  accent: 'mihrab',
   language: 'en',
   translationId: 'en.sahih',
   arabicScript: 'uthmani',
