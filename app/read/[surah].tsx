@@ -63,6 +63,13 @@ export default function VerseReader() {
   useEffect(() => { verseEnterRef.current = Date.now(); }, [idx]);
 
   const current = ayahs?.[idx];
+
+  // Persist the current view position so backing out mid-surah resumes here
+  // next time, instead of always restarting at ayah 1.
+  useEffect(() => {
+    if (current) setLastRead({ surah: surahNumber, ayah: current.numberInSurah });
+  }, [current, surahNumber, setLastRead]);
+
   const ayahHasanat = useMemo(
     () => current ? hasanatFor(stripTajweed(current.arabic)) : 0,
     [current],
@@ -136,9 +143,9 @@ export default function VerseReader() {
         </View>
 
         {/* Progress */}
-        <View>
-          <View style={{ height: 4, backgroundColor: t.colors.border, borderRadius: 2 }}>
-            <View style={{ height: 4, width: `${progress * 100}%`, backgroundColor: t.accent.primary, borderRadius: 2 }} />
+        <View style={{ marginTop: t.spacing(3) }}>
+          <View style={{ height: 8, backgroundColor: t.colors.border, borderRadius: 4 }}>
+            <View style={{ height: 8, width: `${progress * 100}%`, backgroundColor: t.accent.primary, borderRadius: 4 }} />
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing(1) }}>
             <Text style={{ color: t.colors.textMuted }}>{idx + 1}/{total}</Text>

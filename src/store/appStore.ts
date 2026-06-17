@@ -4,7 +4,7 @@ import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
-export type AppLanguage = 'en' | 'ar';
+export type AppLanguage = 'en' | 'ar' | 'fr';
 export type ArabicScript = 'uthmani' | 'indopak' | 'tajweed';
 export type ArabicFontSize = 'small' | 'medium' | 'large' | 'xlarge';
 
@@ -53,7 +53,7 @@ export interface AppState {
   hydrated: boolean;
   settings: Settings;
   stats: Stats;
-  profile: { name: string };
+  profile: { name: string; photoUri: string | null };
   lastRead: ReadingLocation | null;
   favorites: string[];  // "surah:ayah"
   bookmarks: string[];  // "surah:ayah"
@@ -62,6 +62,7 @@ export interface AppState {
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
+  setProfilePhoto: (uri: string | null) => void;
   setLastRead: (loc: ReadingLocation) => void;
   setDailyGoal: (n: number) => void;
   recordVerseRead: (hasanat: number, timeSec: number, pagesDelta: number) => void;
@@ -90,7 +91,7 @@ const DEFAULT_SETTINGS: Settings = {
 const DEFAULT_STATE = {
   settings: DEFAULT_SETTINGS,
   stats: { daily: {}, weekly: {}, monthly: {}, yearly: {}, total: emptyBucket() } as Stats,
-  profile: { name: '' },
+  profile: { name: '', photoUri: null as string | null },
   lastRead: null as ReadingLocation | null,
   favorites: [] as string[],
   bookmarks: [] as string[],
@@ -123,7 +124,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
 }
 
 type Actions = Pick<AppState,
-  'setSetting' | 'setProfileName' | 'setLastRead' | 'setDailyGoal' |
+  'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'setLastRead' | 'setDailyGoal' |
   'recordVerseRead' | 'toggleFavorite' | 'toggleBookmark'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -135,6 +136,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setProfileName: name => {
     set(s => ({ profile: { ...s.profile, name } }));
+    void persist(get());
+  },
+  setProfilePhoto: uri => {
+    set(s => ({ profile: { ...s.profile, photoUri: uri } }));
     void persist(get());
   },
   setLastRead: loc => {
@@ -194,7 +199,7 @@ export async function hydrateAppStore(): Promise<void> {
       useAppStore.setState({
         settings: { ...DEFAULT_SETTINGS, ...data.settings },
         stats: data.stats ?? DEFAULT_STATE.stats,
-        profile: data.profile ?? DEFAULT_STATE.profile,
+        profile: { ...DEFAULT_STATE.profile, ...(data.profile ?? {}) },
         lastRead: data.lastRead ?? null,
         favorites: data.favorites ?? [],
         bookmarks: data.bookmarks ?? [],

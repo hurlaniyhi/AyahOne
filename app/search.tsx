@@ -9,6 +9,7 @@ import { searchCached, type SearchHit } from '@/data/quranApi';
 import { getSurah } from '@/data/surahs';
 import { useAppStore } from '@/store/appStore';
 import { arabicFontFor } from '@/lib/quranText';
+import { stripTajweed } from '@/lib/tajweed';
 
 export default function SearchScreen() {
   const t = useTheme();
@@ -81,7 +82,7 @@ export default function SearchScreen() {
                     }}
                     numberOfLines={2}
                   >
-                    {item.arabic}
+                    {stripTajweed(item.arabic)}
                   </Text>
                   {item.translation ? (
                     <Text style={{ color: t.colors.textMuted }} numberOfLines={2}>{item.translation}</Text>

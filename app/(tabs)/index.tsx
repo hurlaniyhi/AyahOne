@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, View, Text, Pressable } from 'react-native';
+import { ScrollView, View, Text, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -58,7 +58,25 @@ export default function HomeScreen() {
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
-            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#7DD3C0' }} />
+            <Pressable
+              onPress={() => router.push('/settings/account')}
+              hitSlop={8}
+              style={({ pressed }) => ({
+                width: 44, height: 44, borderRadius: 22, overflow: 'hidden',
+                backgroundColor: profile.photoUri ? 'transparent' : t.accent.primarySoft,
+                alignItems: 'center', justifyContent: 'center',
+                borderWidth: 1.5, borderColor: t.accent.primary,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              {profile.photoUri ? (
+                <Image source={{ uri: profile.photoUri }} style={{ width: 44, height: 44 }} />
+              ) : (
+                <Text style={{ color: t.accent.primary, fontWeight: '800', fontSize: 16 }}>
+                  {(profile.name || 'F').trim().charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </Pressable>
             <View>
               <Text style={{ color: t.colors.textMuted, fontSize: 14 }}>{s.greeting}</Text>
               <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 18 }}>

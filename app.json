@@ -11,7 +11,13 @@
     "plugins": [
       "expo-router",
       "expo-localization",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow AyahOne to access your photos so you can set a profile picture."
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true

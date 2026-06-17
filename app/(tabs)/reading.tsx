@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { useAppStore } from '@/store/appStore';
@@ -18,11 +18,22 @@ export default function ReadingScreen() {
   const router = useRouter();
   const favorites = useAppStore(st => st.favorites);
   const bookmarks = useAppStore(st => st.bookmarks);
+  const lastRead = useAppStore(st => st.lastRead);
+  const profile = useAppStore(st => st.profile);
 
-  const [surahNumber, setSurahNumber] = useState<number>(18);
-  const [verse, setVerse] = useState<number>(1);
+  const [surahNumber, setSurahNumber] = useState<number>(lastRead?.surah ?? 18);
+  const [verse, setVerse] = useState<number>(lastRead?.ayah ?? 1);
   const [showSurah, setShowSurah] = useState(false);
   const [showVerse, setShowVerse] = useState(false);
+
+  // Re-sync from lastRead whenever the tab regains focus so the
+  // "Start from verse" reflects where the user actually stopped.
+  useFocusEffect(useCallback(() => {
+    if (lastRead) {
+      setSurahNumber(lastRead.surah);
+      setVerse(lastRead.ayah);
+    }
+  }, [lastRead]));
 
   const surah = getSurah(surahNumber)!;
 
@@ -31,11 +42,33 @@ export default function ReadingScreen() {
       <View style={{ flex: 1, padding: t.spacing(4), gap: t.spacing(4) }}>
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#7DD3C0' }} />
-          <Text style={{
-            position: 'absolute', left: 0, right: 0, textAlign: 'center',
-            color: t.colors.text, fontWeight: '700', fontSize: 20,
-          }}>{s.reading}</Text>
+          <Pressable
+            onPress={() => router.push('/settings/account')}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              width: 44, height: 44, borderRadius: 22, overflow: 'hidden',
+              backgroundColor: profile.photoUri ? 'transparent' : t.accent.primarySoft,
+              alignItems: 'center', justifyContent: 'center',
+              borderWidth: 1.5, borderColor: t.accent.primary,
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            {profile.photoUri ? (
+              <Image source={{ uri: profile.photoUri }} style={{ width: 44, height: 44 }} />
+            ) : (
+              <Text style={{ color: t.accent.primary, fontWeight: '800', fontSize: 16 }}>
+                {(profile.name || 'F').trim().charAt(0).toUpperCase()}
+              </Text>
+            )}
+          </Pressable>
+          <View
+            pointerEvents="none"
+            style={{ position: 'absolute', left: 0, right: 0, alignItems: 'center' }}
+          >
+            <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 20 }}>
+              {s.reading}
+            </Text>
+          </View>
         </View>
 
         <Text style={{ color: t.colors.textMuted, textAlign: 'center' }}>

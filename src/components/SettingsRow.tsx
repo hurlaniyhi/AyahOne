@@ -20,11 +20,28 @@ export function SettingsRow({ label, value, onPress, trailing }: RowProps) {
         padding: t.spacing(4),
         backgroundColor: t.colors.surface,
         borderRadius: t.radius.md,
+        gap: t.spacing(3),
       }}
     >
-      <Text style={{ color: t.colors.text, fontWeight: '600', fontSize: 16 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
-        {value ? <Text style={{ color: t.colors.textMuted }}>{value}</Text> : null}
+      <Text
+        style={{ color: t.colors.text, fontWeight: '600', fontSize: 16, flexShrink: 0 }}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      <View style={{
+        flex: 1, flexDirection: 'row', alignItems: 'center',
+        justifyContent: 'flex-end', gap: t.spacing(2),
+      }}>
+        {value ? (
+          <Text
+            style={{ color: t.colors.textMuted, flexShrink: 1 }}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {value}
+          </Text>
+        ) : null}
         {trailing ?? (onPress ? <Ionicons name="chevron-forward" size={20} color={t.colors.textMuted} /> : null)}
       </View>
     </Pressable>
