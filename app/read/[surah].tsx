@@ -11,10 +11,17 @@ import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
-import { arabicFontFor, toArabicDigits, withAyahMarker } from '@/lib/quranText';
+import { arabicFontFor, toArabicDigits } from '@/lib/quranText';
 import { parseTajweed, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
-import { Button, IconButton } from '@/components/Button';
+import { IconButton } from '@/components/Button';
+import { AyahMarker } from '@/components/AyahMarker';
+import { ArabesqueMark } from '@/components/ArabesqueMark';
+import { GlassDock } from '@/components/GlassDock';
 import { useTodayStats } from '@/store/selectors';
+
+// Standard Bismillah, shown as an opener for ayah 1 of every surah except
+// Al-Fatihah (1) where it is itself the first ayah, and At-Tawbah (9).
+const BISMILLAH = '\u0628\u0650\u0633\u0652\u0645\u0650 \u0627\u0644\u0644\u0651\u064E\u0647\u0650 \u0627\u0644\u0631\u0651\u064E\u062D\u0652\u0645\u064E\u0670\u0646\u0650 \u0627\u0644\u0631\u0651\u064E\u062D\u0650\u064A\u0645\u0650';
 
 export default function VerseReader() {
   const t = useTheme();
@@ -88,15 +95,13 @@ export default function VerseReader() {
   const isFav = key && favorites.includes(key);
   const isBkm = key && bookmarks.includes(key);
 
-  // Inverted mushaf-style card so Arabic stands out: white-on-black in light
-  // mode, black-on-white in dark mode.
-  const arabicBg = t.mode === 'dark' ? '#FFFFFF' : '#0B0B0F';
-  const arabicFg = t.mode === 'dark' ? '#0B0B0F' : '#FFFFFF';
-  const arabicMuted = t.mode === 'dark' ? '#6B7280' : '#9CA3AF';
-
   const ARABIC_SIZE_MAP = { small: 22, medium: 28, large: 34, xlarge: 40 } as const;
   const arabicSize = ARABIC_SIZE_MAP[settings.arabicFontSize];
   const arabicLineHeight = Math.round(arabicSize * 2);
+
+  // The Bismillah opener is shown above ayah 1 for every surah except
+  // Al-Fatihah (1, where it IS ayah 1) and At-Tawbah (9, where it is absent).
+  const showBismillah = current?.numberInSurah === 1 && surahNumber !== 1 && surahNumber !== 9;
 
   const goNext = () => {
     if (!ayahs || !current) return;
@@ -110,7 +115,7 @@ export default function VerseReader() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top', 'bottom']}>
-      <View style={{ padding: t.spacing(4), gap: t.spacing(3), flex: 1 }}>
+      <View style={{ paddingHorizontal: t.spacing(4), paddingTop: t.spacing(2), gap: t.spacing(3), flex: 1 }}>
         {/* Top bar */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <IconButton onPress={() => router.back()}>
@@ -118,23 +123,24 @@ export default function VerseReader() {
           </IconButton>
           <View style={{
             flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
-            borderWidth: 1, borderColor: t.colors.border,
+            borderWidth: 0.75, borderColor: t.colors.hairline,
+            backgroundColor: t.colors.surface,
             borderRadius: t.radius.pill,
             paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2),
           }}>
             {!settings.hideHasanat && (
               <>
-                <Ionicons name="heart" size={14} color="#F472B6" />
-                <Text style={{ color: t.colors.text, fontWeight: '700' }}>{formatNumber(today.hasanat)}</Text>
-                <View style={{ width: 1, height: 14, backgroundColor: t.colors.border }} />
+                <Ionicons name="sparkles" size={13} color={t.colors.brass} />
+                <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 13 }}>{formatNumber(today.hasanat)}</Text>
+                <View style={{ width: 1, height: 12, backgroundColor: t.colors.hairline }} />
               </>
             )}
-            <Ionicons name="document-text" size={14} color={t.colors.tileBlue} />
-            <Text style={{ color: t.colors.text, fontWeight: '700' }}>{today.verses}</Text>
-            <View style={{ width: 1, height: 14, backgroundColor: t.colors.border }} />
-            <Ionicons name="time" size={14} color={t.colors.tileAmber} />
-            <Text style={{ color: t.colors.text, fontWeight: '700' }}>
-              {String(Math.floor(elapsed / 60)).padStart(2, '0')}m {String(Math.floor(elapsed % 60)).padStart(2, '0')}s
+            <Ionicons name="book-outline" size={13} color={t.accent.primary} />
+            <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 13 }}>{today.verses}</Text>
+            <View style={{ width: 1, height: 12, backgroundColor: t.colors.hairline }} />
+            <Ionicons name="time-outline" size={13} color={t.colors.tileBlue} />
+            <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 13 }}>
+              {String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(Math.floor(elapsed % 60)).padStart(2, '0')}
             </Text>
           </View>
           <IconButton onPress={() => router.push('/settings/account')}>
@@ -142,38 +148,93 @@ export default function VerseReader() {
           </IconButton>
         </View>
 
+        {/* Surah title — editorial header */}
+        <View style={{ alignItems: 'center', marginTop: t.spacing(1) }}>
+          <Text style={{ color: t.colors.brass, fontSize: 11, letterSpacing: 2, fontWeight: '700' }}>
+            {String(surahMeta.number).padStart(3, '0')} · {surahMeta.englishTranslation?.toUpperCase()}
+          </Text>
+          <Text style={{ color: t.colors.text, fontSize: 22, fontWeight: '800', marginTop: 2 }}>
+            {surahMeta.englishName}
+          </Text>
+        </View>
+
         {/* Progress */}
-        <View style={{ marginTop: t.spacing(3) }}>
-          <View style={{ height: 8, backgroundColor: t.colors.border, borderRadius: 4 }}>
+        <View style={{ marginTop: t.spacing(2) }}>
+          <View style={{ height: 8, backgroundColor: t.colors.surfaceMuted, borderRadius: 4 }}>
             <View style={{ height: 8, width: `${progress * 100}%`, backgroundColor: t.accent.primary, borderRadius: 4 }} />
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing(1) }}>
-            <Text style={{ color: t.colors.textMuted }}>{idx + 1}/{total}</Text>
-            <Text style={{ color: t.colors.textMuted }}>{surahMeta.englishName} : {versesLeft} {s.versesLeft}</Text>
-            <Text style={{ color: t.colors.textMuted }}>{Math.round(progress * 100)}%</Text>
+            <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{idx + 1}/{total}</Text>
+            <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{versesLeft} {s.versesLeft}</Text>
+            <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{Math.round(progress * 100)}%</Text>
           </View>
         </View>
 
-        {/* Verse card */}
-        <ScrollView contentContainerStyle={{ gap: t.spacing(3) }}>
-          <View style={{ backgroundColor: arabicBg, borderRadius: t.radius.lg, padding: t.spacing(5), gap: t.spacing(3) }}>
+        {/* Verse card — parchment with arabesque watermark */}
+        <ScrollView
+          contentContainerStyle={{ gap: t.spacing(3), paddingBottom: t.spacing(28) }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{
+            backgroundColor: t.colors.surfaceElevated,
+            borderRadius: t.radius.xl,
+            borderWidth: 0.75, borderColor: t.colors.hairline,
+            padding: t.spacing(5),
+            gap: t.spacing(3),
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOpacity: t.mode === 'dark' ? 0.35 : 0.05,
+            shadowRadius: 16, shadowOffset: { width: 0, height: 8 },
+            elevation: 3,
+          }}>
+            <View pointerEvents="none" style={{ position: 'absolute', right: -36, top: -36, opacity: t.mode === 'dark' ? 0.08 : 0.06 }}>
+              <ArabesqueMark size={180} color={t.colors.brass} />
+            </View>
+            <View pointerEvents="none" style={{ position: 'absolute', left: -36, bottom: -36, opacity: t.mode === 'dark' ? 0.06 : 0.04 }}>
+              <ArabesqueMark size={140} color={t.colors.brass} />
+            </View>
+
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: arabicFg, fontWeight: '700' }}>{surahMeta.number}. {surahMeta.englishName}</Text>
-              <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>
-                <Pressable onPress={() => current && toggleFavorite(surahNumber, current.numberInSurah)}>
-                  <Ionicons name={isFav ? 'heart' : 'heart-outline'} size={20} color={isFav ? '#F43F5E' : arabicFg} />
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
+                paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(1),
+                borderRadius: t.radius.pill,
+                backgroundColor: t.colors.surfaceMuted,
+              }}>
+                <Text style={{ color: t.colors.brass, fontWeight: '700', fontSize: 11, letterSpacing: 1 }}>AYAH</Text>
+                <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 13 }}>
+                  {current?.numberInSurah ?? idx + 1}/{surahMeta.numberOfAyahs}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: t.spacing(4) }}>
+                <Pressable hitSlop={10} onPress={() => current && toggleFavorite(surahNumber, current.numberInSurah)}>
+                  <Ionicons name={isFav ? 'heart' : 'heart-outline'} size={22} color={isFav ? t.colors.danger : t.colors.textMuted} />
                 </Pressable>
-                <Pressable onPress={() => current && toggleBookmark(surahNumber, current.numberInSurah)}>
-                  <Ionicons name={isBkm ? 'bookmark' : 'bookmark-outline'} size={20} color={isBkm ? t.accent.primary : arabicFg} />
+                <Pressable hitSlop={10} onPress={() => current && toggleBookmark(surahNumber, current.numberInSurah)}>
+                  <Ionicons name={isBkm ? 'bookmark' : 'bookmark-outline'} size={22} color={isBkm ? t.accent.primary : t.colors.textMuted} />
                 </Pressable>
               </View>
             </View>
-            <Text style={{ color: arabicMuted }}>{current?.numberInSurah ?? idx + 1}/{surahMeta.numberOfAyahs}</Text>
+
             {error && <Text style={{ color: t.colors.danger }}>{error}</Text>}
-            {!ayahs && !error && <ActivityIndicator color={arabicFg} />}
+            {!ayahs && !error && <ActivityIndicator color={t.accent.primary} />}
+
+            {showBismillah && (
+              <Text style={{
+                color: t.colors.brass,
+                fontSize: Math.round(arabicSize * 0.85),
+                lineHeight: Math.round(arabicSize * 1.6),
+                textAlign: 'center', writingDirection: 'rtl',
+                fontFamily: arabicFontFor(settings.arabicScript),
+                marginBottom: t.spacing(1),
+              }}>
+                {BISMILLAH}
+              </Text>
+            )}
+
             {current && (
               <Text style={{
-                color: arabicFg, fontSize: arabicSize, lineHeight: arabicLineHeight,
+                color: t.colors.text, fontSize: arabicSize, lineHeight: arabicLineHeight,
                 textAlign: 'center', writingDirection: 'rtl',
                 fontFamily: arabicFontFor(settings.arabicScript),
               }}>
@@ -183,11 +244,21 @@ export default function VerseReader() {
                         {seg.text}
                       </Text>
                     ))
-                  : null}
-                {tajweedSegments
-                  ? ` \u06DD${toArabicDigits(current.numberInSurah)}`
-                  : withAyahMarker(current.arabic, current.numberInSurah)}
+                  : current.arabic}
+                {' '}
+                <Text style={{ color: t.colors.brass }}>
+                  {`\u06DD${toArabicDigits(current.numberInSurah)}`}
+                </Text>
               </Text>
+            )}
+
+            {/* Bottom hairline + AyahMarker roundel as ornamental footer */}
+            {current && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: t.spacing(2), gap: t.spacing(3) }}>
+                <View style={{ flex: 1, height: 0.75, backgroundColor: t.colors.hairline }} />
+                <AyahMarker number={current.numberInSurah} size={32} />
+                <View style={{ flex: 1, height: 0.75, backgroundColor: t.colors.hairline }} />
+              </View>
             )}
           </View>
 
@@ -197,26 +268,69 @@ export default function VerseReader() {
             </Text>
           )}
           {settings.showTranslation && current && (
-            <Text style={{ color: t.colors.text, fontSize: 18, lineHeight: 28, fontWeight: '600' }}>
+            <Text style={{ color: t.colors.text, fontSize: 18, lineHeight: 28, fontWeight: '500' }}>
               {current.translation}
             </Text>
           )}
-        </ScrollView>
 
-        {/* Bottom controls — equal-width, baseline-aligned row */}
-        {!settings.hideHasanat && current && (
-          <Text style={{ color: t.colors.success, fontWeight: '700', textAlign: 'right' }}>
-            +{ayahHasanat}
-          </Text>
-        )}
-        <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: t.spacing(3) }}>
-          <Button variant="outline" onPress={goPrev} disabled={idx === 0} style={{ flex: 1 }}>
-            <Ionicons name="arrow-back" size={20} color={t.colors.text} />
-          </Button>
-          <Button variant="secondary" label={s.imDone} onPress={() => router.back()} style={{ flex: 2 }} />
-          <Button onPress={goNext} disabled={!current || idx + 1 >= (ayahs?.length ?? 0)} style={{ flex: 1 }}>
-            <Ionicons name="arrow-forward" size={20} color={t.accent.onPrimary} />
-          </Button>
+          {!settings.hideHasanat && current && (
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end',
+              gap: t.spacing(2),
+              paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2),
+              borderRadius: t.radius.pill,
+              backgroundColor: t.accent.primarySoft,
+            }}>
+              <Ionicons name="sparkles" size={14} color={t.colors.brass} />
+              <Text style={{ color: t.colors.success, fontWeight: '800' }}>+{ayahHasanat}</Text>
+            </View>
+          )}
+        </ScrollView>
+      </View>
+
+      {/* Floating glass action dock */}
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        <View style={{ paddingHorizontal: t.spacing(4), paddingBottom: t.spacing(5), paddingTop: t.spacing(2) }}>
+          <GlassDock radius={28} style={{ flexDirection: 'row', alignItems: 'center', padding: t.spacing(2), gap: t.spacing(2) }}>
+            <Pressable
+              onPress={goPrev}
+              disabled={idx === 0}
+              style={({ pressed }) => ({
+                width: 48, height: 48, borderRadius: 24,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: t.colors.surfaceMuted,
+                opacity: idx === 0 ? 0.4 : 1,
+                transform: [{ scale: pressed && idx !== 0 ? t.pressedScale : 1 }],
+              })}
+            >
+              <Ionicons name="arrow-back" size={20} color={t.colors.text} />
+            </Pressable>
+            <Pressable
+              onPress={() => router.back()}
+              style={({ pressed }) => ({
+                flex: 1, height: 48, borderRadius: 24,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: t.colors.surfaceMuted,
+                transform: [{ scale: pressed ? t.pressedScale : 1 }],
+              })}
+            >
+              <Text style={{ color: t.colors.text, fontWeight: '700', letterSpacing: 0.3 }}>{s.imDone}</Text>
+            </Pressable>
+            <Pressable
+              onPress={goNext}
+              disabled={!current || idx + 1 >= (ayahs?.length ?? 0)}
+              style={({ pressed }) => ({
+                paddingHorizontal: t.spacing(5), height: 48, borderRadius: 24,
+                flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
+                backgroundColor: t.accent.primary,
+                opacity: !current || idx + 1 >= (ayahs?.length ?? 0) ? 0.4 : 1,
+                transform: [{ scale: pressed && !(!current || idx + 1 >= (ayahs?.length ?? 0)) ? t.pressedScale : 1 }],
+              })}
+            >
+              <Text style={{ color: t.accent.onPrimary, fontWeight: '700' }}>Next</Text>
+              <Ionicons name="arrow-forward" size={18} color={t.accent.onPrimary} />
+            </Pressable>
+          </GlassDock>
         </View>
       </View>
     </SafeAreaView>

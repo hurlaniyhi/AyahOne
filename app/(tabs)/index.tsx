@@ -1,16 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ScrollView, View, Text, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAppStore } from '@/store/appStore';
-import { useTodayStats, useWeekStats, useTotalStats } from '@/store/selectors';
+import { useTodayStats, useWeekStats, useTotalStats, useDailySeries } from '@/store/selectors';
 import { useStrings } from '@/i18n/strings';
 import { getSurah } from '@/data/surahs';
 import { Button } from '@/components/Button';
-import { StatTile } from '@/components/StatTile';
+import { StatRow } from '@/components/StatRow';
+import { StreakBars } from '@/components/StreakBars';
+import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { PrecacheBanner } from '@/components/PrecacheBanner';
 import { GoalEditSheet } from '@/components/GoalEditSheet';
 import { formatDuration, formatNumber } from '@/lib/format';
@@ -28,6 +29,10 @@ export default function HomeScreen() {
   const today = useTodayStats();
   const week = useWeekStats();
   const total = useTotalStats();
+  const versesSeries = useDailySeries('verses', 7);
+  const hasanatSeries = useDailySeries('hasanat', 7);
+  const timeSeries = useDailySeries('timeSec', 7);
+  const pagesSeries = useDailySeries('pages', 7);
   const [range, setRange] = useState<'today' | 'week' | 'all'>('today');
   const [goalEditOpen, setGoalEditOpen] = useState(false);
 
@@ -37,25 +42,10 @@ export default function HomeScreen() {
   const progress = Math.min(1, today.verses / Math.max(1, dailyGoal));
   const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon
 
-  const weekdayStrip = useMemo(() => WEEKDAYS.map((w, i) => {
-    const active = i === todayDow;
-    return (
-      <View key={i} style={{
-        width: 36, height: 36, borderRadius: 18,
-        alignItems: 'center', justifyContent: 'center',
-        borderWidth: 1.5,
-        borderColor: active ? t.accent.primary : t.colors.border,
-        backgroundColor: active ? t.accent.primary : 'transparent',
-      }}>
-        <Text style={{ color: active ? t.accent.onPrimary : t.colors.text, fontWeight: '600' }}>{w}</Text>
-      </View>
-    );
-  }), [todayDow, t]);
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
-      <ScrollView contentContainerStyle={{ padding: t.spacing(4), gap: t.spacing(4) }}>
-        {/* Header */}
+      <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
+        {/* Header — compact identity row, no gauge on the right */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
             <Pressable
@@ -78,8 +68,8 @@ export default function HomeScreen() {
               )}
             </Pressable>
             <View>
-              <Text style={{ color: t.colors.textMuted, fontSize: 14 }}>{s.greeting}</Text>
-              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 18 }}>
+              <Text style={{ color: t.colors.textMuted, fontSize: 13, letterSpacing: 0.3 }}>{s.greeting}</Text>
+              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 20, marginTop: 1 }}>
                 {profile.name || 'Friend'}
               </Text>
             </View>
@@ -87,26 +77,19 @@ export default function HomeScreen() {
           {!hideHasanat && (
             <View style={{
               flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
-              borderWidth: 1, borderColor: t.colors.border,
+              borderWidth: 0.75, borderColor: t.colors.hairline,
               paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2),
-              borderRadius: 16,
+              borderRadius: t.radius.pill,
+              backgroundColor: t.colors.surface,
             }}>
-              <Ionicons name="stats-chart-outline" size={18} color={t.colors.text} />
-              <View style={{ width: 1, height: 16, backgroundColor: t.colors.border }} />
-              <Ionicons name="book" size={16} color={t.accent.primary} />
+              <Ionicons name="sparkles" size={14} color={t.colors.brass} />
               <Text style={{ color: t.colors.text, fontWeight: '700' }}>{formatNumber(today.hasanat)}</Text>
             </View>
           )}
         </View>
 
-        {/* Weekday strip */}
-        <View style={{
-          flexDirection: 'row', justifyContent: 'space-between',
-          borderWidth: 1, borderColor: t.colors.border,
-          borderRadius: t.radius.pill, paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2),
-        }}>
-          {weekdayStrip}
-        </View>
+        {/* Streak — replaces Quranly's pill weekday row */}
+        <StreakBars values={versesSeries} labels={WEEKDAYS} todayIndex={todayDow} goal={dailyGoal} />
 
         <PrecacheBanner />
 
@@ -117,7 +100,7 @@ export default function HomeScreen() {
               flexDirection: 'row', alignItems: 'center', gap: t.spacing(3),
               padding: t.spacing(4), borderRadius: t.radius.lg,
               backgroundColor: t.colors.surface,
-              borderWidth: 1, borderColor: t.accent.primary,
+              borderWidth: 0.75, borderColor: t.colors.brass,
             }}
           >
             <View style={{
@@ -125,7 +108,7 @@ export default function HomeScreen() {
               alignItems: 'center', justifyContent: 'center',
               backgroundColor: t.accent.primarySoft,
             }}>
-              <Ionicons name="sunny" size={20} color={t.accent.primary} />
+              <Ionicons name="sunny" size={20} color={t.colors.brass} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: t.colors.text, fontWeight: '700' }}>{s.fridayKahfTitle}</Text>
@@ -137,66 +120,80 @@ export default function HomeScreen() {
           </Pressable>
         )}
 
-        {/* Goal card */}
-        <LinearGradient
-          colors={t.accent.gradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{
-            borderRadius: t.radius.lg,
-            padding: t.spacing(5),
-            gap: t.spacing(3),
-            shadowColor: t.accent.primary,
-            shadowOpacity: t.mode === 'dark' ? 0.45 : 0.25,
-            shadowRadius: 16,
-            shadowOffset: { width: 0, height: 8 },
-            elevation: 6,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <View>
-              <Text style={{ color: t.accent.onPrimary, fontWeight: '800', fontSize: 28 }}>{s.goal}</Text>
-              <Pressable
-                onPress={() => setGoalEditOpen(true)}
-                hitSlop={8}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2), marginTop: 4 }}
-              >
-                <Text style={{ color: t.accent.onPrimary, fontWeight: '600' }}>
-                  {goalSurah?.number}. {goalSurah?.englishName} | {goalAyah}/{goalSurah?.numberOfAyahs}
+        {/* Ribbon hero — parchment card with vertical accent ribbon and arabesque watermark */}
+        <View style={{
+          borderRadius: t.radius.xl,
+          backgroundColor: t.colors.surface,
+          borderWidth: 0.75, borderColor: t.colors.hairline,
+          overflow: 'hidden',
+          shadowColor: '#000',
+          shadowOpacity: t.mode === 'dark' ? 0.35 : 0.08,
+          shadowRadius: 18, shadowOffset: { width: 0, height: 10 },
+          elevation: 4,
+        }}>
+          <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, backgroundColor: t.accent.primary }} />
+          <View pointerEvents="none" style={{ position: 'absolute', right: -32, bottom: -32, opacity: t.mode === 'dark' ? 0.10 : 0.07 }}>
+            <ArabesqueMark size={180} color={t.colors.brass} />
+          </View>
+          <View style={{ padding: t.spacing(5), paddingLeft: t.spacing(6), gap: t.spacing(3) }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: t.colors.textMuted, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', fontWeight: '700' }}>
+                  {s.goal}
                 </Text>
-                <Ionicons name="pencil" size={14} color={t.accent.onPrimary} />
-              </Pressable>
+                <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 30, marginTop: 2 }}>
+                  {today.verses}<Text style={{ color: t.colors.textMuted, fontSize: 18, fontWeight: '600' }}> / {dailyGoal} {s.versesPerDay}</Text>
+                </Text>
+                <Pressable
+                  onPress={() => setGoalEditOpen(true)}
+                  hitSlop={8}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2), marginTop: 4 }}
+                >
+                  <Text style={{ color: t.colors.textMuted, fontWeight: '600' }}>
+                    {goalSurah?.number}. {goalSurah?.englishName} · {goalAyah}/{goalSurah?.numberOfAyahs}
+                  </Text>
+                  <Ionicons name="pencil" size={13} color={t.colors.textMuted} />
+                </Pressable>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ color: t.accent.primary, fontWeight: '800', fontSize: 28 }}>{Math.round(progress * 100)}%</Text>
+              </View>
             </View>
-            <Text style={{ color: t.accent.onPrimary, fontWeight: '700', fontSize: 18 }}>
-              {Math.round(progress * 100)}%
-            </Text>
+            <View style={{ height: 6, backgroundColor: t.colors.surfaceMuted, borderRadius: 3, overflow: 'hidden' }}>
+              <View style={{ height: 6, width: `${progress * 100}%`, backgroundColor: t.accent.primary, borderRadius: 3 }} />
+            </View>
+            <Button
+              label={s.readQuran}
+              onPress={() => router.push(`/read/${goalSurah?.number ?? 1}?ayah=${goalAyah}`)}
+              style={{ alignSelf: 'stretch', marginTop: t.spacing(1) }}
+            />
           </View>
-          <View style={{ height: 6, backgroundColor: '#FFFFFF66', borderRadius: 3, overflow: 'hidden' }}>
-            <View style={{ height: 6, width: `${progress * 100}%`, backgroundColor: '#FFFFFF' }} />
-          </View>
-          <Text style={{ color: t.accent.onPrimary, fontWeight: '600' }}>
-            {today.verses}/{dailyGoal} {s.versesPerDay}
-          </Text>
-          <Button
-            label={s.readQuran}
-            variant="secondary"
-            style={{ backgroundColor: '#000', alignSelf: 'stretch' }}
-            textStyle={{ color: '#FFF' }}
-            onPress={() => router.push(`/read/${goalSurah?.number ?? 1}?ayah=${goalAyah}`)}
-          />
-        </LinearGradient>
+        </View>
 
-        {/* Range tabs */}
-        <View style={{ flexDirection: 'row', gap: t.spacing(2) }}>
+        {/* Range tabs — segmented control on a parchment track */}
+        <View style={{
+          flexDirection: 'row',
+          backgroundColor: t.colors.surfaceMuted,
+          padding: t.spacing(1),
+          borderRadius: t.radius.pill,
+        }}>
           {(['today', 'week', 'all'] as const).map(k => {
             const active = range === k;
             return (
               <Pressable key={k} onPress={() => setRange(k)} style={{
-                paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(2),
+                flex: 1,
+                paddingVertical: t.spacing(2),
                 borderRadius: t.radius.pill,
-                backgroundColor: active ? t.accent.primary : 'transparent',
+                backgroundColor: active ? t.colors.surfaceElevated : 'transparent',
+                alignItems: 'center',
+                ...(active ? {
+                  shadowColor: '#000',
+                  shadowOpacity: t.mode === 'dark' ? 0.30 : 0.06,
+                  shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
+                  elevation: 2,
+                } : null),
               }}>
-                <Text style={{ color: active ? t.accent.onPrimary : t.colors.textMuted, fontWeight: '700' }}>
+                <Text style={{ color: active ? t.colors.text : t.colors.textMuted, fontWeight: '700', fontSize: 13 }}>
                   {k === 'today' ? s.today : k === 'week' ? s.week : s.all}
                 </Text>
               </Pressable>
@@ -204,25 +201,13 @@ export default function HomeScreen() {
           })}
         </View>
 
-        {/* Stats grid */}
-        <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>
-          {!hideHasanat && (
-            <View style={{ flex: 1 }}>
-              <StatTile label={s.hasanat} value={formatNumber(bucket.hasanat)} icon="heart" accent={t.colors.tileRose} iconBg="#F472B6" />
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <StatTile label={s.verses} value={formatNumber(bucket.verses)} icon="document-text" accent={t.colors.tileBlue} iconBg="#60A5FA" />
-          </View>
-        </View>
-        <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>
-          <View style={{ flex: 1 }}>
-            <StatTile label={s.time} value={formatDuration(bucket.timeSec)} icon="time" accent={t.colors.tileAmber} iconBg="#F59E0B" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <StatTile label={s.pages} value={formatNumber(bucket.pages)} icon="documents" accent={t.colors.tileEmerald} iconBg="#34D399" />
-          </View>
-        </View>
+        {/* Stat shelves — monochrome rows with sparklines */}
+        {!hideHasanat && (
+          <StatRow label={s.hasanat} value={formatNumber(bucket.hasanat)} icon="sparkles" tint={t.colors.brass} series={hasanatSeries} />
+        )}
+        <StatRow label={s.verses} value={formatNumber(bucket.verses)} icon="book-outline" tint={t.accent.primary} series={versesSeries} />
+        <StatRow label={s.time} value={formatDuration(bucket.timeSec)} icon="time-outline" tint={t.colors.tileBlue} series={timeSeries} />
+        <StatRow label={s.pages} value={formatNumber(bucket.pages)} icon="documents-outline" tint={t.colors.tileEmerald} series={pagesSeries} />
       </ScrollView>
       <GoalEditSheet visible={goalEditOpen} onClose={() => setGoalEditOpen(false)} />
     </SafeAreaView>

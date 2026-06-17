@@ -1,4 +1,4 @@
-export type AccentId = 'purple' | 'emerald' | 'rose' | 'amber' | 'sky' | 'indigo';
+export type AccentId = 'mihrab' | 'purple' | 'emerald' | 'rose' | 'amber' | 'sky' | 'indigo';
 
 export interface AccentPalette {
   id: AccentId;
@@ -10,6 +10,7 @@ export interface AccentPalette {
 }
 
 export const ACCENTS: AccentPalette[] = [
+  { id: 'mihrab',  label: 'Mihrab',  primary: '#0F6B5C', primarySoft: '#CFE7DF', onPrimary: '#FFFFFF', gradient: ['#0F6B5C', '#062F2A'] },
   { id: 'purple',  label: 'Purple',  primary: '#7C5CFF', primarySoft: '#C8B8FF', onPrimary: '#FFFFFF', gradient: ['#C8B8FF', '#7C5CFF'] },
   { id: 'emerald', label: 'Emerald', primary: '#10B981', primarySoft: '#A7F3D0', onPrimary: '#FFFFFF', gradient: ['#A7F3D0', '#10B981'] },
   { id: 'rose',    label: 'Rose',    primary: '#F43F5E', primarySoft: '#FECDD3', onPrimary: '#FFFFFF', gradient: ['#FECDD3', '#F43F5E'] },
@@ -22,49 +23,60 @@ export interface ThemeColors {
   background: string;
   surface: string;
   surfaceElevated: string;
+  surfaceMuted: string;  // softer panel — between background and surface
   border: string;
+  hairline: string;      // subtle 0.5px divider
   text: string;
   textMuted: string;
   textInverse: string;
+  brass: string;         // warm metallic highlight for ornaments
   success: string;
   danger: string;
-  // Card accent borders used in stat tiles
+  // Card accent borders used in legacy stat tiles
   tileRose: string;
   tileBlue: string;
   tileAmber: string;
   tileEmerald: string;
 }
 
+// Mihrab: warm parchment background, deep emerald primary, brass highlights
 export const LIGHT: ThemeColors = {
-  background: '#FFFFFF',
-  surface: '#F5F5F7',
+  background: '#FBF7F0',
+  surface: '#F4EEE2',
   surfaceElevated: '#FFFFFF',
-  border: '#E5E5EA',
-  text: '#0B0B0F',
-  textMuted: '#6B7280',
+  surfaceMuted: '#EFE8D8',
+  border: '#E2D9C3',
+  hairline: '#D9CFB6',
+  text: '#1B1A17',
+  textMuted: '#6C6557',
   textInverse: '#FFFFFF',
-  success: '#10B981',
-  danger: '#EF4444',
-  tileRose: '#FB7185',
-  tileBlue: '#60A5FA',
-  tileAmber: '#F59E0B',
-  tileEmerald: '#34D399',
+  brass: '#B08641',
+  success: '#0F6B5C',
+  danger: '#B23A48',
+  tileRose: '#C2526B',
+  tileBlue: '#3F6E8C',
+  tileAmber: '#B08641',
+  tileEmerald: '#0F6B5C',
 };
 
+// Midnight ink: deep night-blue background, warm parchment text, brass highlights
 export const DARK: ThemeColors = {
-  background: '#0B0B0F',
-  surface: '#16161D',
-  surfaceElevated: '#1F1F28',
-  border: '#2A2A33',
-  text: '#FFFFFF',
-  textMuted: '#9CA3AF',
-  textInverse: '#0B0B0F',
-  success: '#34D399',
-  danger: '#F87171',
-  tileRose: '#FB7185',
-  tileBlue: '#60A5FA',
-  tileAmber: '#F59E0B',
-  tileEmerald: '#34D399',
+  background: '#0B1115',
+  surface: '#121A20',
+  surfaceElevated: '#16212A',
+  surfaceMuted: '#0E161C',
+  border: '#1F2C36',
+  hairline: '#243340',
+  text: '#F1E8D5',
+  textMuted: '#8C9AA6',
+  textInverse: '#0B1115',
+  brass: '#D1A24A',
+  success: '#3CC2A1',
+  danger: '#E26A78',
+  tileRose: '#D27989',
+  tileBlue: '#7FA6C0',
+  tileAmber: '#D1A24A',
+  tileEmerald: '#3CC2A1',
 };
 
 export function getAccent(id: AccentId): AccentPalette {

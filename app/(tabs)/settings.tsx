@@ -36,9 +36,10 @@ export default function SettingsScreen() {
         {/* Profile */}
         <View style={{
           backgroundColor: t.colors.surface, borderRadius: t.radius.lg,
+          borderWidth: 0.75, borderColor: t.colors.hairline,
           padding: t.spacing(4), gap: t.spacing(2),
         }}>
-          <Text style={{ color: t.colors.textMuted }}>{s.profileName}</Text>
+          <Text style={{ color: t.colors.textMuted, fontSize: 12, letterSpacing: 0.8, fontWeight: '700', textTransform: 'uppercase' }}>{s.profileName}</Text>
           <TextInput
             value={nameDraft}
             onChangeText={setNameDraft}
@@ -50,9 +51,9 @@ export default function SettingsScreen() {
         </View>
 
         {/* Appearance */}
-        <Text style={{ color: t.colors.textMuted, fontWeight: '700', marginTop: t.spacing(2) }}>{s.appearance}</Text>
+        <Text style={{ color: t.colors.textMuted, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginTop: t.spacing(2) }}>{s.appearance}</Text>
         <View style={{ gap: t.spacing(2) }}>
-          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, gap: t.spacing(3) }}>
+          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.hairline, gap: t.spacing(3) }}>
             <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.theme}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing(3) }}>
               {ACCENTS.map(a => {
@@ -76,7 +77,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, gap: t.spacing(3) }}>
+          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.hairline, gap: t.spacing(3) }}>
             <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.mode}</Text>
             <View style={{ flexDirection: 'row', gap: t.spacing(2) }}>
               {modes.map(m => {
@@ -100,7 +101,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, gap: t.spacing(3) }}>
+          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.hairline, gap: t.spacing(3) }}>
             <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.language}</Text>
             <View style={{ flexDirection: 'row', gap: t.spacing(2) }}>
               {langs.map(l => {
@@ -126,7 +127,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* Account */}
-        <Text style={{ color: t.colors.textMuted, fontWeight: '700', marginTop: t.spacing(2) }}>{s.account}</Text>
+        <Text style={{ color: t.colors.textMuted, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginTop: t.spacing(2) }}>{s.account}</Text>
         <SettingsRow label={s.account} onPress={() => router.push('/settings/account')} />
       </ScrollView>
     </SafeAreaView>

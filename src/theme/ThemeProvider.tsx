@@ -14,7 +14,11 @@ export interface Theme {
   radius: { sm: number; md: number; lg: number; xl: number; pill: number };
   font: {
     arabic: string | undefined;
+    ui: string | undefined;
+    heading: string | undefined;
   };
+  motion: { fast: number; base: number; slow: number };
+  pressedScale: number;
 }
 
 const ThemeContext = createContext<Theme | null>(null);
@@ -33,7 +37,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     accent: getAccent(accentId),
     spacing: (n: number) => n * 4,
     radius: { sm: 8, md: 12, lg: 16, xl: 24, pill: 999 },
-    font: { arabic: undefined },
+    font: { arabic: undefined, ui: undefined, heading: undefined },
+    motion: { fast: 120, base: 220, slow: 360 },
+    pressedScale: 0.97,
   }), [mode, accentId]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

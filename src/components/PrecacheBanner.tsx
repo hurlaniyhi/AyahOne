@@ -16,7 +16,9 @@ export function PrecacheBanner() {
       flexDirection: 'row', alignItems: 'center', gap: t.spacing(3),
       padding: t.spacing(3),
       borderRadius: t.radius.md,
-      backgroundColor: precache.error ? '#FEF2F2' : t.accent.primarySoft,
+      backgroundColor: t.colors.surface,
+      borderWidth: 0.75,
+      borderColor: precache.error ? t.colors.danger : t.colors.hairline,
     }}>
       {precache.error ? (
         <Ionicons name="cloud-offline" size={20} color={t.colors.danger} />
@@ -25,13 +27,13 @@ export function PrecacheBanner() {
       )}
       <View style={{ flex: 1 }}>
         <Text style={{
-          color: precache.error ? t.colors.danger : t.colors.textInverse,
+          color: precache.error ? t.colors.danger : t.colors.text,
           fontWeight: '700',
         }}>
           {precache.error ? 'Offline Quran cache failed' : 'Downloading the Qur’an for offline use'}
         </Text>
         {!precache.error && (
-          <Text style={{ color: t.colors.textInverse, opacity: 0.85, fontSize: 12 }}>
+          <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>
             {precache.loaded}/{precache.total} surahs · {pct}%
           </Text>
         )}

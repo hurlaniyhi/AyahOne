@@ -105,24 +105,28 @@ export default function ReadingScreen() {
           onPress={() => router.push(`/read/${surahNumber}?ayah=${verse}`)}
         />
 
-        {/* Favourites + Bookmarks */}
+        {/* Favourites + Bookmarks — restful editorial tiles */}
         <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>
           <View style={{ flex: 1 }}>
-            <Card borderColor="#FB7185" style={{ alignItems: 'center', gap: t.spacing(2) }}>
-              <View style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: '#F43F5E', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="heart" size={32} color="#FFFFFF" />
+            <Card watermark style={{ gap: t.spacing(2) }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+                <Ionicons name="heart-outline" size={18} color={t.colors.danger} />
+                <Text style={{ color: t.colors.textMuted, fontWeight: '700', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' }}>
+                  {s.favorites}
+                </Text>
               </View>
-              <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.favorites}</Text>
-              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 22 }}>{favorites.length}</Text>
+              <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 32 }}>{favorites.length}</Text>
             </Card>
           </View>
           <View style={{ flex: 1 }}>
-            <Card borderColor={t.accent.primary} style={{ alignItems: 'center', gap: t.spacing(2) }}>
-              <View style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: t.accent.primary, alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="bookmark" size={32} color="#FFFFFF" />
+            <Card watermark style={{ gap: t.spacing(2) }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+                <Ionicons name="bookmark-outline" size={18} color={t.accent.primary} />
+                <Text style={{ color: t.colors.textMuted, fontWeight: '700', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' }}>
+                  {s.bookmarks}
+                </Text>
               </View>
-              <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.bookmarks}</Text>
-              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 22 }}>{bookmarks.length}</Text>
+              <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 32 }}>{bookmarks.length}</Text>
             </Card>
           </View>
         </View>
