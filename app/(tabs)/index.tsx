@@ -24,6 +24,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const profile = useAppStore(st => st.profile);
   const lastRead = useAppStore(st => st.lastRead);
+  // Furthest ayah reached in Surah Al-Kahf (18) — drives the Friday banner's
+  // progress bar and its "continue from where you stopped" tap target.
+  const kahfProgress = useAppStore(st => st.surahProgress[18] ?? 0);
   const dailyGoal = useAppStore(st => st.dailyGoalVerses);
   const hideHasanat = useAppStore(st => st.settings.hideHasanat);
   const today = useTodayStats();
@@ -93,32 +96,51 @@ export default function HomeScreen() {
 
         <PrecacheBanner />
 
-        {new Date().getDay() === 5 && (
-          <Pressable
-            onPress={() => router.push('/read/18?ayah=1')}
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: t.spacing(3),
-              padding: t.spacing(4), borderRadius: t.radius.lg,
-              backgroundColor: t.colors.surface,
-              borderWidth: 0.75, borderColor: t.colors.brass,
-            }}
-          >
-            <View style={{
-              width: 40, height: 40, borderRadius: 20,
-              alignItems: 'center', justifyContent: 'center',
-              backgroundColor: t.accent.primarySoft,
-            }}>
-              <Ionicons name="sunny" size={20} color={t.colors.brass} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: t.colors.text, fontWeight: '700' }}>{s.fridayKahfTitle}</Text>
-              <Text style={{ color: t.colors.textMuted, fontSize: 12 }} numberOfLines={2}>
-                {s.fridayKahfSubtitle}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={t.colors.textMuted} />
-          </Pressable>
-        )}
+        {new Date().getDay() === 5 && (() => {
+          const KAHF_TOTAL = 110;
+          const kahfRead = Math.min(KAHF_TOTAL, kahfProgress);
+          const kahfPct = kahfRead / KAHF_TOTAL;
+          const kahfResume = Math.min(KAHF_TOTAL, Math.max(1, kahfProgress || 1));
+          return (
+            <Pressable
+              // `nosave=1` keeps the Reading menu's "Start Reading Quran" pointer
+              // on the user's last menu-driven session; the banner still grows
+              // surahProgress[18] so this card reflects real progress.
+              onPress={() => router.push(`/read/18?ayah=${kahfResume}&nosave=1`)}
+              style={{
+                padding: t.spacing(4), borderRadius: t.radius.lg, gap: t.spacing(3),
+                backgroundColor: t.colors.surface,
+                borderWidth: 0.75, borderColor: t.colors.brass,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
+                <View style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: t.accent.primarySoft,
+                }}>
+                  <Ionicons name="sunny" size={20} color={t.colors.brass} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: t.colors.text, fontWeight: '700' }}>{s.fridayKahfTitle}</Text>
+                  <Text style={{ color: t.colors.textMuted, fontSize: 12 }} numberOfLines={2}>
+                    {s.fridayKahfSubtitle}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={t.colors.textMuted} />
+              </View>
+              <View>
+                <View style={{ height: 6, backgroundColor: t.colors.surfaceMuted, borderRadius: 3, overflow: 'hidden' }}>
+                  <View style={{ height: 6, width: `${kahfPct * 100}%`, backgroundColor: t.colors.brass, borderRadius: 3 }} />
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: t.spacing(1) }}>
+                  <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{kahfRead}/{KAHF_TOTAL} verses</Text>
+                  <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700' }}>{Math.round(kahfPct * 100)}%</Text>
+                </View>
+              </View>
+            </Pressable>
+          );
+        })()}
 
         {/* Ribbon hero — parchment card with vertical accent ribbon and arabesque watermark */}
         <View style={{

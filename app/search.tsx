@@ -63,7 +63,10 @@ export default function SearchScreen() {
                 <Pressable
                   onPress={() => {
                     router.back();
-                    setTimeout(() => router.push(`/read/${item.surah}?ayah=${item.ayah}`), 0);
+                    // `nosave=1` keeps this an ephemeral view: the reader will
+                    // not move the resume pointer used by the Reading menu's
+                    // "Start Reading Quran" / Today's Goal card.
+                    setTimeout(() => router.push(`/read/${item.surah}?ayah=${item.ayah}&nosave=1`), 0);
                   }}
                   style={({ pressed }) => ({
                     padding: t.spacing(4),

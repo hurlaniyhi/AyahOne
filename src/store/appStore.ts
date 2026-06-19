@@ -6,7 +6,12 @@ import type { AccentId } from '@/theme/palettes';
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type AppLanguage = 'en' | 'ar' | 'fr';
 export type ArabicScript = 'uthmani' | 'indopak' | 'tajweed';
-export type ArabicFontSize = 'small' | 'medium' | 'large' | 'xlarge';
+
+// Allowed range for the Arabic font-size slider, in px. Kept here so callers
+// (read screen, settings preview) can clamp / map without re-declaring it.
+export const ARABIC_FONT_MIN = 18;
+export const ARABIC_FONT_MAX = 48;
+export const ARABIC_FONT_DEFAULT = 28;
 
 export interface Settings {
   themeMode: ThemeMode;
@@ -14,7 +19,8 @@ export interface Settings {
   language: AppLanguage;
   translationId: string;
   arabicScript: ArabicScript;
-  arabicFontSize: ArabicFontSize;
+  // Arabic body font size in px (continuous, clamped to ARABIC_FONT_MIN/MAX).
+  arabicFontSize: number;
   showTranslation: boolean;
   showTransliteration: boolean;
   hideHasanat: boolean;
@@ -55,6 +61,9 @@ export interface AppState {
   stats: Stats;
   profile: { name: string; photoUri: string | null };
   lastRead: ReadingLocation | null;
+  // Furthest ayah reached per surah, keyed by surah number (1-114). Drives
+  // surah-level progress affordances like the Friday Al-Kahf banner.
+  surahProgress: Record<number, number>;
   favorites: string[];  // "surah:ayah"
   bookmarks: string[];  // "surah:ayah"
   dailyGoalVerses: number;
@@ -66,6 +75,7 @@ export interface AppState {
   setLastRead: (loc: ReadingLocation) => void;
   setDailyGoal: (n: number) => void;
   recordVerseRead: (hasanat: number, timeSec: number, pagesDelta: number) => void;
+  recordSurahProgress: (surah: number, ayah: number) => void;
   toggleFavorite: (surah: number, ayah: number) => void;
   toggleBookmark: (surah: number, ayah: number) => void;
   setPrecache: (p: Partial<PrecacheState>) => void;
@@ -81,7 +91,7 @@ const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   translationId: 'en.sahih',
   arabicScript: 'uthmani',
-  arabicFontSize: 'medium',
+  arabicFontSize: ARABIC_FONT_DEFAULT,
   showTranslation: true,
   showTransliteration: false,
   hideHasanat: false,
@@ -93,6 +103,7 @@ const DEFAULT_STATE = {
   stats: { daily: {}, weekly: {}, monthly: {}, yearly: {}, total: emptyBucket() } as Stats,
   profile: { name: '', photoUri: null as string | null },
   lastRead: null as ReadingLocation | null,
+  surahProgress: {} as Record<number, number>,
   favorites: [] as string[],
   bookmarks: [] as string[],
   dailyGoalVerses: 10,
@@ -113,6 +124,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       stats: state.stats,
       profile: state.profile,
       lastRead: state.lastRead,
+      surahProgress: state.surahProgress,
       favorites: state.favorites,
       bookmarks: state.bookmarks,
       dailyGoalVerses: state.dailyGoalVerses,
@@ -125,7 +137,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
 
 type Actions = Pick<AppState,
   'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'setLastRead' | 'setDailyGoal' |
-  'recordVerseRead' | 'toggleFavorite' | 'toggleBookmark'>;
+  'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
@@ -174,6 +186,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     void persist(get());
   },
+  recordSurahProgress: (surah, ayah) => {
+    if (!Number.isFinite(surah) || !Number.isFinite(ayah) || ayah < 1) return;
+    set(s => {
+      const prev = s.surahProgress[surah] ?? 0;
+      if (ayah <= prev) return s;
+      return { surahProgress: { ...s.surahProgress, [surah]: ayah } };
+    });
+    void persist(get());
+  },
   toggleFavorite: (surah, ayah) => {
     const k = `${surah}:${ayah}`;
     set(s => ({
@@ -196,11 +217,28 @@ export async function hydrateAppStore(): Promise<void> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
+      // Migrate the legacy enum-based Arabic font size ('small'/'medium'/…) to
+      // the new continuous px value so users upgrading from older builds keep
+      // a sensible default rather than getting a NaN font.
+      const incomingSettings = data.settings ?? {};
+      const rawSize = incomingSettings.arabicFontSize;
+      if (typeof rawSize === 'string') {
+        const legacy: Record<string, number> = { small: 22, medium: 28, large: 34, xlarge: 40 };
+        incomingSettings.arabicFontSize = legacy[rawSize] ?? ARABIC_FONT_DEFAULT;
+      } else if (typeof rawSize !== 'number' || Number.isNaN(rawSize)) {
+        incomingSettings.arabicFontSize = ARABIC_FONT_DEFAULT;
+      } else {
+        incomingSettings.arabicFontSize = Math.max(
+          ARABIC_FONT_MIN,
+          Math.min(ARABIC_FONT_MAX, rawSize),
+        );
+      }
       useAppStore.setState({
-        settings: { ...DEFAULT_SETTINGS, ...data.settings },
+        settings: { ...DEFAULT_SETTINGS, ...incomingSettings },
         stats: data.stats ?? DEFAULT_STATE.stats,
         profile: { ...DEFAULT_STATE.profile, ...(data.profile ?? {}) },
         lastRead: data.lastRead ?? null,
+        surahProgress: data.surahProgress ?? {},
         favorites: data.favorites ?? [],
         bookmarks: data.bookmarks ?? [],
         dailyGoalVerses: data.dailyGoalVerses ?? DEFAULT_STATE.dailyGoalVerses,

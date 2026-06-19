@@ -1,12 +1,14 @@
-import React from 'react';
-import { ScrollView, View, Text, Pressable } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { ScrollView, View, Text, Pressable, PanResponder, type GestureResponderEvent } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/theme/ThemeProvider';
 import {
   useAppStore,
   type ArabicScript,
-  type ArabicFontSize,
+  ARABIC_FONT_MIN,
+  ARABIC_FONT_MAX,
 } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { arabicFontFor } from '@/lib/quranText';
@@ -15,11 +17,6 @@ import {
   TAJWEED_LABELS,
   TAJWEED_LEGEND_ORDER,
 } from '@/lib/tajweed';
-
-const SIZE_STOPS: ArabicFontSize[] = ['small', 'medium', 'large', 'xlarge'];
-const SIZE_PX: Record<ArabicFontSize, number> = {
-  small: 22, medium: 28, large: 34, xlarge: 40,
-};
 
 // Bismillah rendered in both editions; system Arabic font is shared but the
 // underlying character set differs (hamzat-wasl, sukun glyphs, etc.).
@@ -44,45 +41,80 @@ const TAJWEED_PREVIEW_SEGMENTS: { text: string; rule?: keyof typeof TAJWEED_COLO
   { text: 'مِ' },
 ];
 
-function StepTrack({
+// Continuous Arabic font-size slider. The thumb tracks the finger 1:1 across
+// the full ARABIC_FONT_MIN..ARABIC_FONT_MAX range — dragging right grows the
+// font, dragging left shrinks it. A light haptic fires on each integer px
+// crossing so the user gets tactile feedback without snap-to-stop semantics.
+function FontSizeSlider({
   value, onChange,
-}: { value: ArabicFontSize; onChange: (v: ArabicFontSize) => void }) {
+}: { value: number; onChange: (v: number) => void }) {
   const t = useTheme();
-  const activeIdx = SIZE_STOPS.indexOf(value);
+  const [trackW, setTrackW] = useState(0);
+  // Refs so the PanResponder callbacks always read the latest committed value
+  // and measured track width without re-creating the responder each render.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const trackWRef = useRef(trackW);
+  trackWRef.current = trackW;
+
+  const sizeFromX = (x: number) => {
+    const w = trackWRef.current;
+    if (w <= 0) return valueRef.current;
+    const ratio = Math.max(0, Math.min(1, x / w));
+    return Math.round(ARABIC_FONT_MIN + ratio * (ARABIC_FONT_MAX - ARABIC_FONT_MIN));
+  };
+  const commit = (px: number) => {
+    if (px === valueRef.current) return;
+    valueRef.current = px;
+    void Haptics.selectionAsync();
+    onChange(px);
+  };
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e: GestureResponderEvent) => commit(sizeFromX(e.nativeEvent.locationX)),
+      onPanResponderMove: (e: GestureResponderEvent) => commit(sizeFromX(e.nativeEvent.locationX)),
+    }),
+  ).current;
+
+  const fillPct = (value - ARABIC_FONT_MIN) / (ARABIC_FONT_MAX - ARABIC_FONT_MIN);
+  const thumbSize = 24;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
       <Text style={{ color: t.colors.textMuted, fontSize: 14, fontWeight: '700' }}>T</Text>
-      <View style={{ flex: 1, height: 32, justifyContent: 'center' }}>
+      <View
+        onLayout={e => setTrackW(e.nativeEvent.layout.width)}
+        style={{ flex: 1, height: 36, justifyContent: 'center' }}
+        {...pan.panHandlers}
+      >
+        {/* Track */}
         <View style={{
           position: 'absolute', left: 0, right: 0, height: 4, borderRadius: 2,
           backgroundColor: t.colors.border,
         }} />
+        {/* Accent-filled portion up to the thumb */}
         <View style={{
           position: 'absolute', left: 0, height: 4, borderRadius: 2,
-          width: `${(activeIdx / (SIZE_STOPS.length - 1)) * 100}%`,
+          width: `${fillPct * 100}%`,
           backgroundColor: t.accent.primary,
         }} />
-        <View style={{
-          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        }}>
-          {SIZE_STOPS.map((stop, i) => {
-            const active = i === activeIdx;
-            return (
-              <Pressable
-                key={stop}
-                onPress={() => onChange(stop)}
-                hitSlop={12}
-                style={{
-                  width: active ? 20 : 12, height: active ? 20 : 12,
-                  borderRadius: active ? 10 : 6,
-                  backgroundColor: i <= activeIdx ? t.accent.primary : t.colors.border,
-                  borderWidth: active ? 3 : 0,
-                  borderColor: t.colors.background,
-                }}
-              />
-            );
-          })}
-        </View>
+        {/* Draggable thumb — positioned by interpolating across the measured
+            track width so the gesture and the visual stay in lockstep. */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: (36 - thumbSize) / 2,
+            left: trackW > 0 ? trackW * fillPct - thumbSize / 2 : -thumbSize,
+            width: thumbSize, height: thumbSize, borderRadius: thumbSize / 2,
+            backgroundColor: t.accent.primary,
+            borderWidth: 3, borderColor: t.colors.background,
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
+            shadowOffset: { width: 0, height: 2 }, elevation: 3,
+          }}
+        />
       </View>
       <Text style={{ color: t.colors.textMuted, fontSize: 24, fontWeight: '700' }}>T</Text>
     </View>
@@ -95,7 +127,7 @@ export default function QuranDisplayScreen() {
   const settings = useAppStore(st => st.settings);
   const setSetting = useAppStore(st => st.setSetting);
 
-  const previewSize = SIZE_PX[settings.arabicFontSize];
+  const previewSize = settings.arabicFontSize;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['bottom']}>
@@ -119,10 +151,15 @@ export default function QuranDisplayScreen() {
 
         {/* Font size */}
         <View style={{ gap: t.spacing(3) }}>
-          <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 16 }}>
-            {s.fontSize}
-          </Text>
-          <StepTrack
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 16 }}>
+              {s.fontSize}
+            </Text>
+            <Text style={{ color: t.colors.textMuted, fontWeight: '600', fontSize: 13 }}>
+              {settings.arabicFontSize}px
+            </Text>
+          </View>
+          <FontSizeSlider
             value={settings.arabicFontSize}
             onChange={v => setSetting('arabicFontSize', v)}
           />

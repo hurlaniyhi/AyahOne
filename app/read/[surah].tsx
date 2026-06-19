@@ -11,7 +11,7 @@ import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
-import { arabicFontFor, toArabicDigits } from '@/lib/quranText';
+import { arabicFontFor } from '@/lib/quranText';
 import { parseTajweed, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
 import { IconButton } from '@/components/Button';
 import { AyahMarker } from '@/components/AyahMarker';
@@ -27,13 +27,20 @@ export default function VerseReader() {
   const t = useTheme();
   const s = useStrings();
   const router = useRouter();
-  const params = useLocalSearchParams<{ surah: string; ayah?: string }>();
+  const params = useLocalSearchParams<{ surah: string; ayah?: string; nosave?: string }>();
   const surahNumber = Math.max(1, Math.min(114, parseInt(params.surah ?? '1', 10) || 1));
   const startAyah = Math.max(1, parseInt(params.ayah ?? '1', 10) || 1);
+  // `nosave=1` marks an ephemeral entry point (search hit, Friday Al-Kahf
+  // banner, …): hasanat / verses / per-surah progress still accrue, but the
+  // resume pointer used by the Reading menu's "Start Reading Quran" and the
+  // home "Today's Goal" card must NOT move — those track only the user's
+  // explicit reading-menu sessions.
+  const ephemeral = params.nosave === '1';
   const surahMeta = getSurah(surahNumber)!;
 
   const settings = useAppStore(st => st.settings);
   const recordVerseRead = useAppStore(st => st.recordVerseRead);
+  const recordSurahProgress = useAppStore(st => st.recordSurahProgress);
   const setLastRead = useAppStore(st => st.setLastRead);
   const toggleFavorite = useAppStore(st => st.toggleFavorite);
   const toggleBookmark = useAppStore(st => st.toggleBookmark);
@@ -101,11 +108,14 @@ export default function VerseReader() {
 
   const current = ayahs?.[idx];
 
-  // Persist the current view position so backing out mid-surah resumes here
-  // next time, instead of always restarting at ayah 1.
+  // Grow per-surah furthest progress on every view (drives the Friday Al-Kahf
+  // banner regardless of how the user entered the reader). Only the
+  // Reading-menu resume pointer (`lastRead`) is gated on non-ephemeral entry.
   useEffect(() => {
-    if (current) setLastRead({ surah: surahNumber, ayah: current.numberInSurah });
-  }, [current, surahNumber, setLastRead]);
+    if (!current) return;
+    recordSurahProgress(surahNumber, current.numberInSurah);
+    if (!ephemeral) setLastRead({ surah: surahNumber, ayah: current.numberInSurah });
+  }, [current, surahNumber, ephemeral, setLastRead, recordSurahProgress]);
 
   const ayahHasanat = useMemo(
     () => current ? hasanatFor(stripTajweed(current.arabic)) : 0,
@@ -125,8 +135,8 @@ export default function VerseReader() {
   const isFav = key && favorites.includes(key);
   const isBkm = key && bookmarks.includes(key);
 
-  const ARABIC_SIZE_MAP = { small: 22, medium: 28, large: 34, xlarge: 40 } as const;
-  const arabicSize = ARABIC_SIZE_MAP[settings.arabicFontSize];
+  // `arabicFontSize` is now a continuous px value driven by the settings slider.
+  const arabicSize = settings.arabicFontSize;
   const arabicLineHeight = Math.round(arabicSize * 2);
 
   // The Bismillah opener is shown above ayah 1 for every surah except
@@ -156,7 +166,8 @@ export default function VerseReader() {
       pagesDelta = 1;
     }
     recordVerseRead(ayahHasanat, dt, pagesDelta);
-    setLastRead({ surah: surahNumber, ayah: current.numberInSurah });
+    recordSurahProgress(surahNumber, current.numberInSurah);
+    if (!ephemeral) setLastRead({ surah: surahNumber, ayah: current.numberInSurah });
     if (idx + 1 < ayahs.length) {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setIdx(idx + 1);
@@ -164,8 +175,11 @@ export default function VerseReader() {
       // Continuous-reading flow: cross into the next surah at ayah 1.
       // `replace` keeps the back stack shallow so the system back button
       // still returns to wherever the user originally entered the reader.
+      // The `nosave` flag is propagated so an ephemeral search-driven session
+      // stays ephemeral when the user reads through into the next surah.
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(`/read/${surahNumber + 1}?ayah=1`);
+      const suffix = ephemeral ? '&nosave=1' : '';
+      router.replace(`/read/${surahNumber + 1}?ayah=1${suffix}`);
     }
   };
   const goPrev = () => {
@@ -178,7 +192,8 @@ export default function VerseReader() {
     const prev = getSurah(surahNumber - 1);
     const lastAyah = prev?.numberOfAyahs ?? 1;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace(`/read/${surahNumber - 1}?ayah=${lastAyah}`);
+    const suffix = ephemeral ? '&nosave=1' : '';
+    router.replace(`/read/${surahNumber - 1}?ayah=${lastAyah}${suffix}`);
   };
 
   return (
@@ -313,10 +328,6 @@ export default function VerseReader() {
                       </Text>
                     ))
                   : current.arabic}
-                {' '}
-                <Text style={{ color: t.colors.brass }}>
-                  {`\u06DD${toArabicDigits(current.numberInSurah)}`}
-                </Text>
               </Text>
             )}
 
