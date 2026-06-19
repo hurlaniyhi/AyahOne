@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, Pressable } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -47,15 +47,32 @@ export default function VerseReader() {
   const [elapsed, setElapsed] = useState(0);
   const lastTickRef = useRef<number>(Date.now());
   const verseEnterRef = useRef<number>(Date.now());
+  // Pages already credited in this surah view session — prevents repeat-tap
+  // inflation and double-counting if the user navigates back and forth.
+  const creditedPagesRef = useRef<Set<number>>(new Set());
+  // Transient label shown when crossing from one surah into the next/previous,
+  // so the in-place param swap reads as an intentional transition rather than
+  // a silent jump.
+  const [transitionLabel, setTransitionLabel] = useState<string | null>(null);
+  const transitionOpacity = useRef(new Animated.Value(0)).current;
+  const prevSurahRef = useRef<number>(surahNumber);
 
   useEffect(() => {
     let alive = true;
     setError(null);
     setAyahs(null);
+    // Reset position + page-credit tracking whenever the surah param changes,
+    // since expo-router updates params in-place rather than remounting the
+    // screen when navigating between adjacent surahs.
+    setIdx(Math.max(0, startAyah - 1));
+    creditedPagesRef.current = new Set();
     getSurahContent(surahNumber, settings.translationId, settings.arabicScript)
       .then(c => { if (alive) setAyahs(c.ayahs); })
       .catch(e => { if (alive) setError(String(e?.message ?? e)); });
     return () => { alive = false; };
+    // startAyah intentionally excluded \u2014 only reset on surah change, not when
+    // the deep-link ayah param flickers within the same surah.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber, settings.translationId, settings.arabicScript]);
 
   useEffect(() => {
@@ -68,6 +85,19 @@ export default function VerseReader() {
   }, []);
 
   useEffect(() => { verseEnterRef.current = Date.now(); }, [idx]);
+
+  // Detect cross-surah transitions and flash a brief floating label so the
+  // continuous-reading flow feels intentional. Skips the initial mount.
+  useEffect(() => {
+    if (prevSurahRef.current === surahNumber) return;
+    prevSurahRef.current = surahNumber;
+    setTransitionLabel(surahMeta.englishName);
+    Animated.sequence([
+      Animated.timing(transitionOpacity, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.delay(900),
+      Animated.timing(transitionOpacity, { toValue: 0, duration: 240, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+    ]).start(({ finished }) => { if (finished) setTransitionLabel(null); });
+  }, [surahNumber, surahMeta.englishName, transitionOpacity]);
 
   const current = ayahs?.[idx];
 
@@ -103,15 +133,53 @@ export default function VerseReader() {
   // Al-Fatihah (1, where it IS ayah 1) and At-Tawbah (9, where it is absent).
   const showBismillah = current?.numberInSurah === 1 && surahNumber !== 1 && surahNumber !== 9;
 
+  const isFirstSurah = surahNumber === 1;
+  const isLastSurah = surahNumber === 114;
+  const atSurahStart = idx === 0;
+  const atSurahEnd = !!ayahs && idx + 1 >= ayahs.length;
+  const nextDisabled = !current || (atSurahEnd && isLastSurah);
+  const prevDisabled = atSurahStart && isFirstSurah;
+
   const goNext = () => {
     if (!ayahs || !current) return;
     const dt = (Date.now() - verseEnterRef.current) / 1000;
-    recordVerseRead(ayahHasanat, dt, 0);
+    // A Madinah-mushaf page is credited the moment its last ayah is read —
+    // either because the next ayah lives on a different page, or because this
+    // is the final ayah of the surah. `creditedPagesRef` guards against repeat
+    // taps and back-and-forth navigation inflating the counter.
+    const nextAyah = ayahs[idx + 1];
+    const page = current.page;
+    const isPageBoundary = page != null && (nextAyah == null || (nextAyah.page != null && nextAyah.page !== page));
+    let pagesDelta = 0;
+    if (isPageBoundary && !creditedPagesRef.current.has(page!)) {
+      creditedPagesRef.current.add(page!);
+      pagesDelta = 1;
+    }
+    recordVerseRead(ayahHasanat, dt, pagesDelta);
     setLastRead({ surah: surahNumber, ayah: current.numberInSurah });
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (idx + 1 < ayahs.length) setIdx(idx + 1);
+    if (idx + 1 < ayahs.length) {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setIdx(idx + 1);
+    } else if (!isLastSurah) {
+      // Continuous-reading flow: cross into the next surah at ayah 1.
+      // `replace` keeps the back stack shallow so the system back button
+      // still returns to wherever the user originally entered the reader.
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace(`/read/${surahNumber + 1}?ayah=1`);
+    }
   };
-  const goPrev = () => { if (idx > 0) setIdx(idx - 1); };
+  const goPrev = () => {
+    if (idx > 0) {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setIdx(idx - 1);
+      return;
+    }
+    if (isFirstSurah) return;
+    const prev = getSurah(surahNumber - 1);
+    const lastAyah = prev?.numberOfAyahs ?? 1;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    router.replace(`/read/${surahNumber - 1}?ayah=${lastAyah}`);
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top', 'bottom']}>
@@ -290,17 +358,48 @@ export default function VerseReader() {
 
       {/* Floating glass action dock */}
       <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        {transitionLabel != null && (
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              alignItems: 'center',
+              paddingHorizontal: t.spacing(4),
+              paddingBottom: t.spacing(2),
+              opacity: transitionOpacity,
+              transform: [{
+                translateY: transitionOpacity.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }),
+              }],
+            }}
+          >
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
+              paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2.5),
+              borderRadius: t.radius.pill,
+              borderWidth: 0.75, borderColor: t.colors.hairline,
+              backgroundColor: t.colors.surfaceElevated,
+              shadowColor: '#000',
+              shadowOpacity: t.mode === 'dark' ? 0.35 : 0.10,
+              shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+              elevation: 4,
+            }}>
+              <Ionicons name="arrow-forward-circle" size={16} color={t.colors.brass} />
+              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 13, letterSpacing: 0.3 }}>
+                {transitionLabel}
+              </Text>
+            </View>
+          </Animated.View>
+        )}
         <View style={{ paddingHorizontal: t.spacing(4), paddingBottom: t.spacing(5), paddingTop: t.spacing(2) }}>
           <GlassDock radius={28} style={{ flexDirection: 'row', alignItems: 'center', padding: t.spacing(2), gap: t.spacing(2) }}>
             <Pressable
               onPress={goPrev}
-              disabled={idx === 0}
+              disabled={prevDisabled}
               style={({ pressed }) => ({
                 width: 48, height: 48, borderRadius: 24,
                 alignItems: 'center', justifyContent: 'center',
                 backgroundColor: t.colors.surfaceMuted,
-                opacity: idx === 0 ? 0.4 : 1,
-                transform: [{ scale: pressed && idx !== 0 ? t.pressedScale : 1 }],
+                opacity: prevDisabled ? 0.4 : 1,
+                transform: [{ scale: pressed && !prevDisabled ? t.pressedScale : 1 }],
               })}
             >
               <Ionicons name="arrow-back" size={20} color={t.colors.text} />
@@ -318,13 +417,13 @@ export default function VerseReader() {
             </Pressable>
             <Pressable
               onPress={goNext}
-              disabled={!current || idx + 1 >= (ayahs?.length ?? 0)}
+              disabled={nextDisabled}
               style={({ pressed }) => ({
                 paddingHorizontal: t.spacing(5), height: 48, borderRadius: 24,
                 flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
                 backgroundColor: t.accent.primary,
-                opacity: !current || idx + 1 >= (ayahs?.length ?? 0) ? 0.4 : 1,
-                transform: [{ scale: pressed && !(!current || idx + 1 >= (ayahs?.length ?? 0)) ? t.pressedScale : 1 }],
+                opacity: nextDisabled ? 0.4 : 1,
+                transform: [{ scale: pressed && !nextDisabled ? t.pressedScale : 1 }],
               })}
             >
               <Text style={{ color: t.accent.onPrimary, fontWeight: '700' }}>Next</Text>

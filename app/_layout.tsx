@@ -29,6 +29,7 @@ function RootStack() {
         <Stack.Screen name="search" options={{ presentation: 'modal', title: 'Search' }} />
         <Stack.Screen name="settings/account" options={{ title: 'Account' }} />
         <Stack.Screen name="settings/quran-display" options={{ title: 'Quran Display' }} />
+        <Stack.Screen name="settings/themes" options={{ headerShown: false }} />
       </Stack>
     </>
   );

@@ -6,6 +6,9 @@ export interface Ayah {
   arabic: string;
   translation: string;
   transliteration: string;
+  // Madinah-mushaf page (1..604). Optional because legacy cached payloads
+  // saved before v2 of the cache schema do not include it.
+  page?: number;
 }
 
 export interface SurahContent {
@@ -28,9 +31,12 @@ const ARABIC_EDITIONS: Record<ArabicScriptId, string> = {
 const DEFAULT_SCRIPT: ArabicScriptId = 'uthmani';
 const DEFAULT_TRANSLATION = 'en.sahih';
 const TRANSLITERATION_EDITION = 'en.transliteration';
-const PRECACHE_FLAG_PREFIX = 'surah:v1:precached:';
+// Cache versioned so payloads that pre-date the `page` field on Ayah are
+// transparently discarded and refetched, rather than serving stale data that
+// would never let the pages-read counter increment.
+const PRECACHE_FLAG_PREFIX = 'surah:v2:precached:';
 
-const CACHE_PREFIX = 'surah:v1:';
+const CACHE_PREFIX = 'surah:v2:';
 const memCache = new Map<string, SurahContent>();
 
 // Default script (uthmani) keeps the legacy 3-segment key shape so previously
@@ -65,13 +71,18 @@ async function saveToStorage(key: string, data: SurahContent): Promise<void> {
   }
 }
 
-async function fetchEdition(surah: number, edition: string): Promise<string[]> {
+interface AyahPayload {
+  text: string;
+  page?: number;
+}
+
+async function fetchEdition(surah: number, edition: string): Promise<AyahPayload[]> {
   const res = await fetch(`https://api.alquran.cloud/v1/surah/${surah}/${edition}`);
   if (!res.ok) throw new Error(`Failed to fetch surah ${surah} (${edition}): ${res.status}`);
   const json = await res.json();
-  const ayahs = json?.data?.ayahs as Array<{ text: string }> | undefined;
+  const ayahs = json?.data?.ayahs as Array<{ text: string; page?: number }> | undefined;
   if (!ayahs) throw new Error('Malformed surah payload');
-  return ayahs.map(a => a.text);
+  return ayahs.map(a => ({ text: a.text, page: a.page }));
 }
 
 export async function getSurahContent(
@@ -97,9 +108,10 @@ export async function getSurahContent(
     ]);
     const ayahs: Ayah[] = arabic.map((ar, i) => ({
       numberInSurah: i + 1,
-      arabic: ar,
-      translation: trans[i] ?? '',
-      transliteration: translit[i] ?? '',
+      arabic: ar.text,
+      translation: trans[i]?.text ?? '',
+      transliteration: translit[i]?.text ?? '',
+      page: ar.page,
     }));
     const content: SurahContent = { number: surah, ayahs };
     memCache.set(key, content);
@@ -154,7 +166,7 @@ export function searchCached(query: string): SearchHit[] {
 // cache layout so the rest of the app (including searchCached) just works.
 interface FullQuranSurahPayload {
   number: number;
-  ayahs: Array<{ numberInSurah: number; text: string }>;
+  ayahs: Array<{ numberInSurah: number; text: string; page?: number }>;
 }
 
 async function fetchFullEdition(edition: string): Promise<FullQuranSurahPayload[]> {
@@ -214,6 +226,7 @@ export async function precacheAllSurahs(
       arabic: a.text,
       translation: tr?.ayahs[idx]?.text ?? '',
       transliteration: tl?.ayahs[idx]?.text ?? '',
+      page: a.page,
     }));
     const content: SurahContent = { number: ar.number, ayahs };
     const key = cacheKey(ar.number, translation, script);

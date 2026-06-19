@@ -53,29 +53,30 @@ export default function SettingsScreen() {
         {/* Appearance */}
         <Text style={{ color: t.colors.textMuted, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginTop: t.spacing(2) }}>{s.appearance}</Text>
         <View style={{ gap: t.spacing(2) }}>
-          <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.hairline, gap: t.spacing(3) }}>
-            <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.theme}</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing(3) }}>
-              {ACCENTS.map(a => {
-                const active = settings.accent === a.id;
-                return (
-                  <Pressable
-                    key={a.id}
-                    onPress={() => setSetting('accent', a.id)}
-                    style={{
-                      width: 44, height: 44, borderRadius: 22,
-                      backgroundColor: a.primary,
-                      borderWidth: active ? 3 : 0,
-                      borderColor: t.colors.text,
-                      alignItems: 'center', justifyContent: 'center',
-                    }}
-                  >
-                    {active && <Ionicons name="checkmark" size={20} color="#FFFFFF" />}
-                  </Pressable>
-                );
-              })}
+          <Pressable
+            onPress={() => router.push('/settings/themes')}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+              padding: t.spacing(4), gap: t.spacing(3),
+              backgroundColor: t.colors.surface, borderRadius: t.radius.md,
+              borderWidth: 0.75, borderColor: t.colors.hairline,
+            }}
+          >
+            <Text style={{ color: t.colors.text, fontWeight: '600', fontSize: 16 }}>{s.theme}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
+              <View style={{
+                width: 22, height: 22, borderRadius: 11,
+                backgroundColor: t.accent.primary,
+                borderWidth: 2, borderColor: t.colors.surface,
+                shadowColor: '#000', shadowOpacity: t.mode === 'dark' ? 0.4 : 0.10,
+                shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+              }} />
+              <Text style={{ color: t.colors.textMuted, fontWeight: '600' }} numberOfLines={1}>
+                {ACCENTS.find(a => a.id === settings.accent)?.label ?? settings.accent}
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color={t.colors.textMuted} />
             </View>
-          </View>
+          </Pressable>
 
           <View style={{ padding: t.spacing(4), backgroundColor: t.colors.surface, borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.hairline, gap: t.spacing(3) }}>
             <Text style={{ color: t.colors.text, fontWeight: '600' }}>{s.mode}</Text>

@@ -59,8 +59,8 @@ describe('precacheAllSurahs', () => {
     );
 
     // Per-surah entries written under the existing key shape
-    const s1 = await AsyncStorage.getItem('surah:v1:1:en.sahih');
-    const s2 = await AsyncStorage.getItem('surah:v1:2:en.sahih');
+    const s1 = await AsyncStorage.getItem('surah:v2:1:en.sahih');
+    const s2 = await AsyncStorage.getItem('surah:v2:2:en.sahih');
     expect(s1).not.toBeNull();
     expect(s2).not.toBeNull();
 
@@ -75,7 +75,7 @@ describe('precacheAllSurahs', () => {
     });
 
     // Flag written for this translation
-    expect(await AsyncStorage.getItem('surah:v1:precached:en.sahih')).toBe('1');
+    expect(await AsyncStorage.getItem('surah:v2:precached:en.sahih')).toBe('1');
 
     // Progress: starts at 0, ends with done=true
     expect(progress[0]).toEqual({ loaded: 0, total: 114, done: false });

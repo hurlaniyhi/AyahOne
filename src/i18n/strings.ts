@@ -70,6 +70,8 @@ const EN: Dict = {
   langEnglish: 'English',
   langArabic: 'Arabic',
   langFrench: 'French',
+  readingThemes: 'Reading Themes',
+  current: 'CURRENT',
 };
 
 const AR: Dict = {
@@ -140,6 +142,8 @@ const AR: Dict = {
   langEnglish: 'الإنجليزية',
   langArabic: 'العربية',
   langFrench: 'الفرنسية',
+  readingThemes: 'ثيمات القراءة',
+  current: 'الحالي',
 };
 
 const FR: Dict = {
@@ -210,6 +214,8 @@ const FR: Dict = {
   langEnglish: 'Anglais',
   langArabic: 'Arabe',
   langFrench: 'Français',
+  readingThemes: 'Thèmes de lecture',
+  current: 'ACTUEL',
 };
 
 const TABLE: Record<AppLanguage, Dict> = { en: EN, ar: AR, fr: FR };
