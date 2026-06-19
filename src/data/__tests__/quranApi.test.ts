@@ -4,21 +4,30 @@ import { precacheAllSurahs, isPrecached, searchCached, warmMemoryCache, type Pre
 type Edition = 'quran-uthmani' | 'en.sahih' | 'en.transliteration';
 
 function makeSurah(num: number, prefix: string, ayahCount: number) {
+  // Arabic-letter token so search-related tests exercise the same code path
+  // as real Quran text (non-Arabic chars are stripped during normalisation).
+  const arabicToken = (n: number) => `\u0628\u062D${'\u062A'.repeat(Math.max(1, n))}`;
   return {
     number: num,
     ayahs: Array.from({ length: ayahCount }, (_, i) => ({
       numberInSurah: i + 1,
-      text: `${prefix}-S${num}A${i + 1}`,
+      text: `${prefix}-S${num}A${i + 1} ${arabicToken(i + 1)}`,
     })),
   };
 }
 
 function buildPayload(editionPrefix: string) {
-  return {
-    data: {
-      surahs: [makeSurah(1, editionPrefix, 7), makeSurah(2, editionPrefix, 3)],
-    },
-  };
+  // precacheAllSurahs now refuses to flag the cache complete unless all 114
+  // surahs are present (defensive against truncated bulk responses), so the
+  // mock corpus mirrors that shape. Surah 1 keeps 7 ayahs and Surah 2 keeps 3
+  // for the existing per-surah assertions; the rest are stubbed with a single
+  // ayah each.
+  const surahs = Array.from({ length: 114 }, (_, i) => {
+    const num = i + 1;
+    const ayahCount = num === 1 ? 7 : num === 2 ? 3 : 1;
+    return makeSurah(num, editionPrefix, ayahCount);
+  });
+  return { data: { surahs } };
 }
 
 function mockFetchByEdition() {
@@ -69,9 +78,9 @@ describe('precacheAllSurahs', () => {
     expect(s1Parsed.ayahs).toHaveLength(7);
     expect(s1Parsed.ayahs[0]).toEqual({
       numberInSurah: 1,
-      arabic: 'ar-S1A1',
-      translation: 'en-S1A1',
-      transliteration: 'tl-S1A1',
+      arabic: 'ar-S1A1 \u0628\u062D\u062A',
+      translation: 'en-S1A1 \u0628\u062D\u062A',
+      transliteration: 'tl-S1A1 \u0628\u062D\u062A',
     });
 
     // Flag written for this translation
@@ -118,7 +127,8 @@ describe('warmMemoryCache', () => {
     });
     global.fetch = blowUp as unknown as typeof fetch;
 
-    await expect(warmMemoryCache('en.sahih')).resolves.toBeUndefined();
+    const warmed = await warmMemoryCache('en.sahih');
+    expect(warmed).toBeGreaterThan(0);
     expect(blowUp).not.toHaveBeenCalled();
   });
 
@@ -134,9 +144,54 @@ describe('warmMemoryCache', () => {
 
     // searchCached iterates every memCache entry; if the flag had been loaded,
     // this call would throw on `.ayahs.forEach` of a number.
-    expect(() => searchCached('ar-S1A1')).not.toThrow();
-    const hits = searchCached('ar-S1A1');
+    const q = '\u0628\u062D\u062A'; // Arabic token from makeSurah ayah 1
+    expect(() => searchCached(q)).not.toThrow();
+    const hits = searchCached(q);
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0].surah).toBe(1);
+  });
+});
+
+describe('searchCached normalisation', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    jest.restoreAllMocks();
+  });
+
+  // Regression: the quran-tajweed edition wraps letters in nested brackets
+  // shaped like `[RULE[content]`. A previous naive `/\[[^\]]*\]/` matched
+  // from the OUTER `[` to the inner `]`, deleting the wrapped letter.
+  // foldLetters now delegates to stripTajweed so the inner Arabic survives.
+  it('finds \u0631\u0636\u0648\u0627\u0646 inside tajweed-bracketed text', async () => {
+    // 47:28 fragment with the long-a vowel encoded as a dagger alef inside a
+    // tajweed `[a[\u0670]` tag (idgham_w_ghunnah). Without the fix the wrapped
+    // `\u0670` is consumed, normalisation produces `\u0631\u0636\u0648\u0646\u0647`, and the query misses.
+    const tajweedFetch = jest.fn(async (url: string) => {
+      const m = url.match(/\/quran\/([^/]+)$/);
+      const edition = (m?.[1] ?? '') as Edition;
+      if (edition === 'quran-uthmani') {
+        const surahs = Array.from({ length: 114 }, (_, i) => {
+          const num = i + 1;
+          if (num === 47) {
+            return {
+              number: 47,
+              ayahs: [
+                { numberInSurah: 1, text: 'placeholder' },
+                { numberInSurah: 28, text: '\u0648\u064E\u0643\u064E\u0631\u0650\u0647\u064F\u0648\u0627\u06DF \u0631\u0650\u0636\u0652\u0648\u064E[a[\u0670]\u0646\u064E\u0647\u064F\u06E5' },
+              ],
+            };
+          }
+          return makeSurah(num, 'ar', 1);
+        });
+        return { ok: true, status: 200, json: async () => ({ data: { surahs } }) } as unknown as Response;
+      }
+      return { ok: true, status: 200, json: async () => buildPayload(edition === 'en.sahih' ? 'en' : 'tl') } as unknown as Response;
+    });
+    global.fetch = tajweedFetch as unknown as typeof fetch;
+    await precacheAllSurahs('en.sahih');
+
+    const hits = searchCached('\u0631\u0636\u0648\u0627\u0646');
+    const muhammad = hits.find(h => h.surah === 47 && h.ayah === 28);
+    expect(muhammad).toBeDefined();
   });
 });

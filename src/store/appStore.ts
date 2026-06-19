@@ -68,6 +68,11 @@ export interface AppState {
   bookmarks: string[];  // "surah:ayah"
   dailyGoalVerses: number;
   precache: PrecacheState;
+  // Remembered Search query so the modal can be reopened with the same
+  // results after the user has navigated into the reader and pressed back.
+  // Intentionally NOT persisted to AsyncStorage — search state should be
+  // ephemeral across app launches.
+  lastSearchQuery: string;
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
@@ -79,6 +84,7 @@ export interface AppState {
   toggleFavorite: (surah: number, ayah: number) => void;
   toggleBookmark: (surah: number, ayah: number) => void;
   setPrecache: (p: Partial<PrecacheState>) => void;
+  setLastSearchQuery: (q: string) => void;
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
@@ -108,6 +114,7 @@ const DEFAULT_STATE = {
   bookmarks: [] as string[],
   dailyGoalVerses: 10,
   precache: { running: false, loaded: 0, total: 0, error: null } as PrecacheState,
+  lastSearchQuery: '',
 };
 
 function addTo(target: BucketStats, h: number, t: number, p: number) {
@@ -210,6 +217,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     void persist(get());
   },
   setPrecache: (p) => set(s => ({ precache: { ...s.precache, ...p } })),
+  setLastSearchQuery: (q) => set({ lastSearchQuery: q }),
 }));
 
 export async function hydrateAppStore(): Promise<void> {

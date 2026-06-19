@@ -3,7 +3,7 @@ import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAppStore } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
@@ -27,7 +27,7 @@ export default function VerseReader() {
   const t = useTheme();
   const s = useStrings();
   const router = useRouter();
-  const params = useLocalSearchParams<{ surah: string; ayah?: string; nosave?: string }>();
+  const params = useLocalSearchParams<{ surah: string; ayah?: string; nosave?: string; fromSearch?: string }>();
   const surahNumber = Math.max(1, Math.min(114, parseInt(params.surah ?? '1', 10) || 1));
   const startAyah = Math.max(1, parseInt(params.ayah ?? '1', 10) || 1);
   // `nosave=1` marks an ephemeral entry point (search hit, Friday Al-Kahf
@@ -36,6 +36,29 @@ export default function VerseReader() {
   // home "Today's Goal" card must NOT move — those track only the user's
   // explicit reading-menu sessions.
   const ephemeral = params.nosave === '1';
+  // `fromSearch=1` means this screen replaced the Search modal. Going Back
+  // should re-open Search (which restores the user's query + results from
+  // the store) rather than dropping straight to the tab the user was on
+  // before opening Search.
+  const fromSearch = params.fromSearch === '1';
+  const goBack = () => {
+    if (fromSearch) router.replace('/search');
+    else router.back();
+  };
+  // Hardware back (Android) and the iOS swipe-back gesture both fire a
+  // `beforeRemove` event on the navigator. Intercept it when this screen
+  // replaced the Search modal so the user is taken back to Search instead
+  // of dropping to the tab beneath.
+  const navigation = useNavigation();
+  useEffect(() => {
+    if (!fromSearch) return;
+    const sub = navigation.addListener('beforeRemove', (e: { preventDefault: () => void; data: { action: { type: string } } }) => {
+      if (e.data.action.type !== 'GO_BACK' && e.data.action.type !== 'POP') return;
+      e.preventDefault();
+      router.replace('/search');
+    });
+    return sub;
+  }, [navigation, fromSearch, router]);
   const surahMeta = getSurah(surahNumber)!;
 
   const settings = useAppStore(st => st.settings);
@@ -201,7 +224,7 @@ export default function VerseReader() {
       <View style={{ paddingHorizontal: t.spacing(4), paddingTop: t.spacing(2), gap: t.spacing(3), flex: 1 }}>
         {/* Top bar */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <IconButton onPress={() => router.back()}>
+          <IconButton onPress={goBack}>
             <Ionicons name="arrow-back" size={20} color={t.colors.text} />
           </IconButton>
           <View style={{
@@ -416,7 +439,7 @@ export default function VerseReader() {
               <Ionicons name="arrow-back" size={20} color={t.colors.text} />
             </Pressable>
             <Pressable
-              onPress={() => router.back()}
+              onPress={goBack}
               style={({ pressed }) => ({
                 flex: 1, height: 48, borderRadius: 24,
                 alignItems: 'center', justifyContent: 'center',

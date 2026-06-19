@@ -29,7 +29,9 @@ function MiniReadScreen({ accent, colors, scale }: {
 }) {
   const arabicFont = arabicFontFor('uthmani');
   return (
-    <View style={{ flex: 1, padding: 7 * scale, gap: 4 * scale }}>
+    // Extra top padding clears the dynamic-island pill drawn by the phone
+    // chassis above so the stats bar isn't tucked under the notch.
+    <View style={{ flex: 1, paddingTop: 16 * scale, paddingHorizontal: 7 * scale, paddingBottom: 7 * scale, gap: 4 * scale }}>
       {/* Top stats pill — mirrors the real reader's top bar */}
       <View style={{ alignItems: 'center' }}>
         <View style={{
@@ -154,8 +156,12 @@ function ThemePreviewCard({ accent, active, onPress, label, current }: PreviewPr
   const t = useTheme();
   const { width } = useWindowDimensions();
   const cardW = Math.floor((width - 16 * 2 - 12) / 2);
-  const cardH = Math.round(cardW * 1.7);
-  const scale = Math.max(0.85, Math.min(1.2, cardW / 160));
+  const cardH = Math.round(cardW * 1.95);
+  // Inner screen sits inside a chassis bezel. The mini reader scales off the
+  // screen width, not the chassis width, so content stays comfortably inset.
+  const bezel = 5;
+  const screenW = cardW - bezel * 2;
+  const scale = Math.max(0.85, Math.min(1.2, screenW / 160));
   // Animated value drives the selected-state overlay (ring + checkmark + label)
   // so picking a different theme cross-fades rather than snapping.
   const ringOpacity = useRef(new Animated.Value(active ? 1 : 0)).current;
@@ -167,29 +173,56 @@ function ThemePreviewCard({ accent, active, onPress, label, current }: PreviewPr
   }, [active, ringOpacity]);
   const checkScale = ringOpacity.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
+  // Phone chassis tone — slightly lifted from background in dark mode so the
+  // device silhouette reads, deep slate in light mode for a real device feel.
+  const chassis = t.mode === 'dark' ? '#2A2D33' : '#1B1D22';
+  const notchColor = '#0A0B0E';
+
   return (
     <View style={{ width: cardW, gap: t.spacing(2) }}>
       <Pressable onPress={onPress} style={({ pressed }) => ({ transform: [{ scale: pressed ? t.pressedScale : 1 }] })}>
+        {/* Phone chassis — rounded body that frames the live preview screen. */}
         <View style={{
-          height: cardH, borderRadius: 28, overflow: 'hidden',
-          borderWidth: 2, borderColor: accent.primary,
-          shadowColor: '#000', shadowOpacity: t.mode === 'dark' ? 0.45 : 0.12,
-          shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 4,
+          height: cardH, borderRadius: 30, padding: bezel,
+          backgroundColor: chassis,
+          shadowColor: active ? accent.primary : '#000',
+          shadowOpacity: active ? 0.45 : (t.mode === 'dark' ? 0.45 : 0.18),
+          shadowRadius: active ? 18 : 14,
+          shadowOffset: { width: 0, height: 8 },
+          elevation: active ? 8 : 4,
         }}>
-          {/* Inner "screen" fills the card — uses live theme surfaces so the
-              preview is a truthful render of how AyahOne will look. The accent
-              identity comes through via the progress fill + Next pill inside. */}
-          <View style={{ flex: 1, backgroundColor: t.colors.background }}>
+          {/* Screen — clips the live mini reader and gives it a phone-glass
+              corner radius. Background uses the theme background so the preview
+              reflects how AyahOne actually looks for this accent. */}
+          <View style={{
+            flex: 1, borderRadius: 24, overflow: 'hidden',
+            backgroundColor: t.colors.background,
+          }}>
             <MiniReadScreen accent={accent} colors={t.colors} scale={scale} />
+            {/* Dynamic-island-style pill at the top of the screen. Sits on top
+                of the mini reader so the silhouette reads as a phone at a glance. */}
+            <View pointerEvents="none" style={{
+              position: 'absolute', top: 4, left: 0, right: 0, alignItems: 'center',
+            }}>
+              <View style={{
+                width: Math.round(screenW * 0.32), height: 8, borderRadius: 4,
+                backgroundColor: notchColor,
+              }} />
+            </View>
           </View>
-          {/* Selection cue is carried by the corner check roundel + the
-              "CURRENT" tag below the card; no outer ring. */}
+          {/* Volume & power buttons — thin chassis-side rails for the
+              phone-shaped illusion. Purely decorative. */}
+          <View pointerEvents="none" style={{ position: 'absolute', left: -1.5, top: '22%', width: 2.5, height: 18, borderRadius: 2, backgroundColor: chassis }} />
+          <View pointerEvents="none" style={{ position: 'absolute', left: -1.5, top: '34%', width: 2.5, height: 26, borderRadius: 2, backgroundColor: chassis }} />
+          <View pointerEvents="none" style={{ position: 'absolute', left: -1.5, top: '46%', width: 2.5, height: 26, borderRadius: 2, backgroundColor: chassis }} />
+          <View pointerEvents="none" style={{ position: 'absolute', right: -1.5, top: '30%', width: 2.5, height: 34, borderRadius: 2, backgroundColor: chassis }} />
+          {/* Selection cue — checkmark badge anchored to the chassis corner. */}
           <Animated.View pointerEvents="none" style={{
-            position: 'absolute', top: 10, right: 10,
+            position: 'absolute', top: -6, right: -6,
             width: 28, height: 28, borderRadius: 14,
             alignItems: 'center', justifyContent: 'center',
             backgroundColor: accent.primary,
-            borderWidth: 2, borderColor: '#FFFFFF',
+            borderWidth: 2, borderColor: t.colors.background,
             opacity: ringOpacity, transform: [{ scale: checkScale }],
             shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3,
           }}>
@@ -241,7 +274,17 @@ export default function ThemesScreen() {
           {s.readingThemes}
         </Text>
       </View>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(5) }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: t.spacing(4),
+          // Extra top padding so the floating checkmark badge on the top row
+          // of cards (anchored at top:-6) clears the screen-title bar above.
+          paddingTop: t.spacing(3),
+          paddingBottom: t.spacing(8),
+          gap: t.spacing(5),
+        }}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: t.spacing(5) }}>
           {ACCENTS.map(a => (
             <ThemePreviewCard

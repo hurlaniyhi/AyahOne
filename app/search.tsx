@@ -15,13 +15,19 @@ export default function SearchScreen() {
   const t = useTheme();
   const s = useStrings();
   const router = useRouter();
-  const [q, setQ] = useState('');
-  const [hits, setHits] = useState<SearchHit[]>([]);
   const arabicScript = useAppStore(st => st.settings.arabicScript);
   const arabicFamily = arabicFontFor(arabicScript);
+  // Restore the last query so that returning from the reader (via
+  // router.replace('/search')) re-opens this modal with the same results
+  // the user had before tapping a hit.
+  const lastQuery = useAppStore.getState().lastSearchQuery;
+  const setLastSearchQuery = useAppStore(st => st.setLastSearchQuery);
+  const [q, setQ] = useState(lastQuery);
+  const [hits, setHits] = useState<SearchHit[]>(() => lastQuery.trim() ? searchCached(lastQuery) : []);
 
   const onChange = (text: string) => {
     setQ(text);
+    setLastSearchQuery(text);
     setHits(text.trim() ? searchCached(text) : []);
   };
 
@@ -49,9 +55,11 @@ export default function SearchScreen() {
         </View>
 
         {hits.length === 0 ? (
-          <Text style={{ color: t.colors.textMuted, textAlign: 'center', marginTop: t.spacing(8) }}>
-            {q.trim() ? s.noResults : s.searchPlaceholder}
-          </Text>
+          <View style={{ alignItems: 'center', marginTop: t.spacing(8) }}>
+            <Text style={{ color: t.colors.textMuted, textAlign: 'center' }}>
+              {q.trim() ? s.noResults : s.searchPlaceholder}
+            </Text>
+          </View>
         ) : (
           <FlatList
             data={hits}
@@ -62,11 +70,14 @@ export default function SearchScreen() {
               return (
                 <Pressable
                   onPress={() => {
-                    router.back();
-                    // `nosave=1` keeps this an ephemeral view: the reader will
-                    // not move the resume pointer used by the Reading menu's
-                    // "Start Reading Quran" / Today's Goal card.
-                    setTimeout(() => router.push(`/read/${item.surah}?ayah=${item.ayah}&nosave=1`), 0);
+                    // Replace this modal with the reader so it visually
+                    // closes. `fromSearch=1` tells the reader to re-open the
+                    // Search modal (which restores the saved query + hits
+                    // from the store) when the user presses Back. `nosave=1`
+                    // keeps this an ephemeral session: the reader will not
+                    // move the resume pointer used by the Reading menu's
+                    // "Start Reading Quran" card.
+                    router.replace(`/read/${item.surah}?ayah=${item.ayah}&nosave=1&fromSearch=1`);
                   }}
                   style={({ pressed }) => ({
                     padding: t.spacing(4),

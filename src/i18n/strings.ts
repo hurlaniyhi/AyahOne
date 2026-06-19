@@ -16,7 +16,7 @@ const EN: Dict = {
   pages: 'Pages',
   reading: 'Reading',
   home: 'Home',
-  explore: 'Explore',
+  explore: 'Search',
   leaderboard: 'Leaderboard',
   settings: 'Settings',
   search: 'Search',
@@ -72,6 +72,15 @@ const EN: Dict = {
   langFrench: 'French',
   readingThemes: 'Reading Themes',
   current: 'CURRENT',
+  searchCache: 'Search Cache',
+  searchCacheReady: 'Ready ({loaded}/{total} surahs)',
+  searchCacheLoading: 'Loading {loaded}/{total}…',
+  searchCacheMissing: 'Not cached yet',
+  searchCachePartial: 'Incomplete ({loaded}/{total}) \u2014 tap Rebuild',
+  searchCacheError: 'Last attempt failed',
+  rebuildCache: 'Rebuild',
+  rebuildingCache: 'Rebuilding…',
+  searchCacheHelp: 'Re-downloads every surah so search covers the full Qur’an.',
 };
 
 const AR: Dict = {
@@ -88,7 +97,7 @@ const AR: Dict = {
   pages: 'الصفحات',
   reading: 'القراءة',
   home: 'الرئيسية',
-  explore: 'استكشاف',
+  explore: 'بحث',
   leaderboard: 'المتصدرون',
   settings: 'الإعدادات',
   search: 'بحث',
@@ -144,6 +153,15 @@ const AR: Dict = {
   langFrench: 'الفرنسية',
   readingThemes: 'ثيمات القراءة',
   current: 'الحالي',
+  searchCache: 'ذاكرة البحث',
+  searchCacheReady: 'جاهزة ({loaded}/{total} سورة)',
+  searchCacheLoading: 'جارٍ التحميل {loaded}/{total}…',
+  searchCacheMissing: 'لم يتم التحميل بعد',
+  searchCachePartial: 'غير مكتملة ({loaded}/{total}) — اضغط إعادة البناء',
+  searchCacheError: 'فشلت المحاولة السابقة',
+  rebuildCache: 'إعادة البناء',
+  rebuildingCache: 'جارٍ إعادة البناء…',
+  searchCacheHelp: 'يعيد تحميل كل السور حتى يشمل البحث المصحف كاملاً.',
 };
 
 const FR: Dict = {
@@ -160,7 +178,7 @@ const FR: Dict = {
   pages: 'Pages',
   reading: 'Lecture',
   home: 'Accueil',
-  explore: 'Explorer',
+  explore: 'Rechercher',
   leaderboard: 'Classement',
   settings: 'Paramètres',
   search: 'Rechercher',
@@ -216,6 +234,15 @@ const FR: Dict = {
   langFrench: 'Français',
   readingThemes: 'Thèmes de lecture',
   current: 'ACTUEL',
+  searchCache: 'Cache de recherche',
+  searchCacheReady: 'Prêt ({loaded}/{total} sourates)',
+  searchCacheLoading: 'Chargement {loaded}/{total}…',
+  searchCacheMissing: 'Non mis en cache',
+  searchCachePartial: 'Incomplet ({loaded}/{total}) — touchez Reconstruire',
+  searchCacheError: 'La tentative précédente a échoué',
+  rebuildCache: 'Reconstruire',
+  rebuildingCache: 'Reconstruction…',
+  searchCacheHelp: 'Re-télécharge toutes les sourates pour que la recherche couvre tout le Coran.',
 };
 
 const TABLE: Record<AppLanguage, Dict> = { en: EN, ar: AR, fr: FR };
