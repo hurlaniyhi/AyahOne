@@ -1,6 +1,5 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,6 +9,7 @@ import { ScheherazadeNew_400Regular, ScheherazadeNew_700Bold } from '@expo-googl
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { hydrateAppStore, useAppStore } from '@/store/appStore';
 import { clearPrecacheFlag, isPrecached, precacheAllSurahs, warmMemoryCache } from '@/data/quranApi';
+import { AnimatedSplash } from '@/components/AnimatedSplash';
 
 function RootStack() {
   const t = useTheme();
@@ -67,6 +67,11 @@ async function bootstrapQuranCache() {
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
+  // Splash stays on screen until BOTH the entrance animation has finished
+  // AND the async boot work has settled. If fonts/store land first the
+  // splash holds at its end-frame; if the animation lands first we wait
+  // here until ready === true, then transition to the app.
+  const [splashDone, setSplashDone] = useState(false);
   const [fontsLoaded] = useFonts({
     AmiriQuran_400Regular,
     ScheherazadeNew_400Regular,
@@ -79,14 +84,15 @@ export default function RootLayout() {
     });
   }, []);
 
+  const bootReady = ready && fontsLoaded;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          {ready && fontsLoaded ? <RootStack /> : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <ActivityIndicator />
-            </View>
+          {bootReady && splashDone ? (
+            <RootStack />
+          ) : (
+            <AnimatedSplash onAnimationDone={() => setSplashDone(true)} />
           )}
         </ThemeProvider>
       </SafeAreaProvider>

@@ -21,7 +21,11 @@ export function GlassDock({ intensity = 60, radius = 28, style, children, ...res
   const fallbackBg = t.mode === 'dark'
     ? 'rgba(18, 26, 32, 0.92)'
     : 'rgba(255, 252, 245, 0.92)';
-  const useBlur = Platform.OS === 'ios' || Platform.OS === 'android';
+  // expo-blur on Android samples inconsistently and tends to render as a
+  // soft rectangular tint instead of a uniform blur, which leaks a visible
+  // box around the tab bar and reader dock. Use the solid tinted fallback
+  // on Android; iOS keeps the real BlurView.
+  const useBlur = Platform.OS === 'ios';
   const container = {
     borderRadius: radius,
     overflow: 'hidden' as const,

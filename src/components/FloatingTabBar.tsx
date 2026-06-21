@@ -59,6 +59,10 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
               accessibilityRole="button"
               accessibilityState={focused ? { selected: true } : {}}
               accessibilityLabel={options.tabBarAccessibilityLabel}
+              // Disable Android's default rectangular ripple so the only
+              // visible active-state cue is the circular pill behind the
+              // icon \u2014 not a square tint bleeding through the tab.
+              android_ripple={null}
               style={({ pressed }) => ({
                 flex: 1, alignItems: 'center', justifyContent: 'center',
                 paddingVertical: t.spacing(2),
@@ -66,7 +70,13 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
               })}
             >
               <View style={{
-                width: 40, height: 32, borderRadius: 16,
+                // True circle so the active state reads the same on Android
+                // and iOS. `overflow: hidden` forces Android to clip the
+                // background fill to the rounded corners \u2014 without it some
+                // Android builds render the fill on a square layer behind
+                // the rounded view, which looks like a square highlight.
+                width: 36, height: 36, borderRadius: 18,
+                overflow: 'hidden',
                 alignItems: 'center', justifyContent: 'center',
                 backgroundColor: focused ? t.accent.primarySoft : 'transparent',
               }}>
