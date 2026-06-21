@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E6BD63"/>
+      <stop offset="50%" stop-color="#B08641"/>
+      <stop offset="100%" stop-color="#7C5A24"/>
+    </linearGradient>
+    <linearGradient id="parchment" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFAF0"/>
+      <stop offset="100%" stop-color="#F2E4C9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Foreground is rendered inside Android's 66% safe-zone circle (radius
+       ~340 from center). All shapes scaled / offset to fit. The drawing
+       uses the same content as icon.svg but transformed via a parent group
+       (centered scale 0.65) so that nothing critical falls outside the
+       safe zone when the system applies mask shapes. -->
+  <g transform="translate(512 512) scale(0.66) translate(-512 -512)">
+    <!-- Mihrab arch -->
+    <path d="M 272 820 L 272 400 Q 272 130 512 130 Q 752 130 752 400 L 752 820 Z"
+          fill="url(#parchment)"/>
+    <path d="M 272 820 L 272 400 Q 272 130 512 130 Q 752 130 752 400 L 752 820"
+          fill="none" stroke="url(#brass)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+
+    <!-- Star -->
+    <g transform="translate(512 530)">
+      <path d="M -160 0 L 0 -160 L 160 0 L 0 160 Z"
+            fill="#0F6B5C" stroke="url(#brass)" stroke-width="7" stroke-linejoin="round"/>
+      <path d="M -113.14 -113.14 L 113.14 -113.14 L 113.14 113.14 L -113.14 113.14 Z"
+            fill="#0F6B5C" fill-opacity="0.88" stroke="url(#brass)" stroke-width="7" stroke-linejoin="round"/>
+      <circle r="34" fill="url(#brass)"/>
+      <circle r="13" fill="#FFFAF0"/>
+    </g>
+
+    <!-- Flourish under the star -->
+    <line x1="312" y1="772" x2="712" y2="772" stroke="url(#brass)" stroke-width="3" stroke-opacity="0.78" stroke-linecap="round"/>
+    <circle cx="312" cy="772" r="6" fill="url(#brass)"/>
+    <circle cx="712" cy="772" r="6" fill="url(#brass)"/>
+    <circle cx="512" cy="772" r="9" fill="url(#brass)"/>
+  </g>
+</svg>

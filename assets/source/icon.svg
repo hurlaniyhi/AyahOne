@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="80%">
+      <stop offset="0%" stop-color="#1F9C84"/>
+      <stop offset="55%" stop-color="#0F6B5C"/>
+      <stop offset="100%" stop-color="#073B33"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E6BD63"/>
+      <stop offset="50%" stop-color="#B08641"/>
+      <stop offset="100%" stop-color="#7C5A24"/>
+    </linearGradient>
+    <linearGradient id="parchment" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFAF0"/>
+      <stop offset="100%" stop-color="#F2E4C9"/>
+    </linearGradient>
+    <linearGradient id="archShade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0F6B5C" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0A5347" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background: rounded squircle filled with emerald radial gradient -->
+  <rect width="1024" height="1024" rx="232" ry="232" fill="url(#bg)"/>
+
+  <!-- Inner brass hairline frame (premium edge) -->
+  <rect x="36" y="36" width="952" height="952" rx="208" ry="208"
+        fill="none" stroke="url(#brass)" stroke-width="2" stroke-opacity="0.45"/>
+
+  <!-- Faint outer arabesque watermark (very subtle, behind the arch) -->
+  <g opacity="0.08" stroke="#FFFAF0" stroke-width="1.5" fill="none">
+    <path d="M 152 512 L 512 152 L 872 512 L 512 872 Z"/>
+    <path d="M 264 264 L 760 264 L 760 760 L 264 760 Z"/>
+    <circle cx="512" cy="512" r="260"/>
+  </g>
+
+  <!-- Mihrab arch silhouette (lancet) — parchment filled with brass border -->
+  <path d="M 272 820 L 272 400 Q 272 130 512 130 Q 752 130 752 400 L 752 820 Z"
+        fill="url(#parchment)"/>
+  <!-- Inner emerald wash inside the arch for depth -->
+  <path d="M 272 820 L 272 400 Q 272 130 512 130 Q 752 130 752 400 L 752 820 Z"
+        fill="url(#archShade)"/>
+  <!-- Arch border (open at the base — like a niche) -->
+  <path d="M 272 820 L 272 400 Q 272 130 512 130 Q 752 130 752 400 L 752 820"
+        fill="none" stroke="url(#brass)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Eight-point Khatem-Sulayman star centered at (512, 530) -->
+  <g transform="translate(512 530)">
+    <!-- Diamond (square rotated 45° visually = vertical diamond) -->
+    <path d="M -160 0 L 0 -160 L 160 0 L 0 160 Z"
+          fill="#0F6B5C" stroke="url(#brass)" stroke-width="7" stroke-linejoin="round"/>
+    <!-- Axis-aligned square (overlay) -->
+    <path d="M -113.14 -113.14 L 113.14 -113.14 L 113.14 113.14 L -113.14 113.14 Z"
+          fill="#0F6B5C" fill-opacity="0.88" stroke="url(#brass)" stroke-width="7" stroke-linejoin="round"/>
+    <!-- Brass medallion -->
+    <circle r="34" fill="url(#brass)"/>
+    <circle r="13" fill="#FFFAF0"/>
+  </g>
+
+  <!-- Calligraphic baseline flourish under the star -->
+  <g stroke="url(#brass)" stroke-linecap="round">
+    <line x1="312" y1="772" x2="712" y2="772" stroke-width="3" stroke-opacity="0.78"/>
+  </g>
+  <circle cx="312" cy="772" r="6" fill="url(#brass)"/>
+  <circle cx="712" cy="772" r="6" fill="url(#brass)"/>
+  <circle cx="512" cy="772" r="9" fill="url(#brass)"/>
+
+  <!-- Tiny stars/sparkles in the upper corners — adds magical depth -->
+  <g fill="#FFFAF0" opacity="0.5">
+    <circle cx="180" cy="220" r="3"/>
+    <circle cx="220" cy="280" r="2"/>
+    <circle cx="844" cy="220" r="3"/>
+    <circle cx="804" cy="280" r="2"/>
+  </g>
+</svg>

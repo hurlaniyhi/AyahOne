@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Monochrome (themed icon) — Android colors this with the user's theme. -->
+  <g transform="translate(512 512) scale(0.66) translate(-512 -512)" fill="#FFFFFF">
+    <!-- Arch silhouette (filled) -->
+    <path d="M 272 820 L 272 400 Q 272 130 512 130 Q 752 130 752 400 L 752 820 Z"/>
+    <!-- Punch out the niche interior so the arch reads as an outline shape -->
+    <path d="M 304 820 L 304 410 Q 304 162 512 162 Q 720 162 720 410 L 720 820 Z"
+          fill="#000000"/>
+    <!-- Star in the niche -->
+    <g transform="translate(512 530)">
+      <path d="M -160 0 L 0 -160 L 160 0 L 0 160 Z"/>
+      <path d="M -113.14 -113.14 L 113.14 -113.14 L 113.14 113.14 L -113.14 113.14 Z"/>
+    </g>
+    <!-- Flourish dots -->
+    <circle cx="312" cy="772" r="6"/>
+    <circle cx="712" cy="772" r="6"/>
+    <circle cx="512" cy="772" r="9"/>
+    <rect x="312" y="770" width="400" height="4" rx="2"/>
+  </g>
+</svg>
