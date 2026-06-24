@@ -2,6 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
+import type { AskMsg } from '@/lib/islamicAi';
+
+// Cap on persisted chat history — generous enough for normal use, small
+// enough that AsyncStorage stays under its per-key budget even when each
+// model reply carries several references.
+const ASK_HISTORY_CAP = 60;
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type AppLanguage = 'en' | 'ar' | 'fr';
@@ -73,6 +79,23 @@ export interface AppState {
   // Intentionally NOT persisted to AsyncStorage — search state should be
   // ephemeral across app launches.
   lastSearchQuery: string;
+  // todayKey() of the last day the user saw the daily-goal celebration.
+  // Persisted so the modal fires AT MOST once per day even across cold
+  // launches. Empty string means it has never been celebrated.
+  lastGoalCelebrationDate: string;
+  // Ephemeral flag set the moment today.verses crosses dailyGoalVerses for
+  // the first time today. The root layout reads it to render the celebration
+  // modal. Not persisted.
+  celebrationVisible: boolean;
+  // Ask-AyahOne chat history. Capped to ASK_HISTORY_CAP on every append
+  // so AsyncStorage stays bounded. Pending messages are dropped on hydrate.
+  askHistory: AskMsg[];
+  // Ephemeral request state. Not persisted: a crashed in-flight request
+  // should not leave the UI permanently disabled.
+  askSending: boolean;
+  // Timestamp (ms) of the last accepted send. Used by the screen to enforce
+  // a small cooldown that prevents accidental double-sends.
+  askLastSendAt: number;
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
@@ -85,6 +108,13 @@ export interface AppState {
   toggleBookmark: (surah: number, ayah: number) => void;
   setPrecache: (p: Partial<PrecacheState>) => void;
   setLastSearchQuery: (q: string) => void;
+  dismissGoalCelebration: () => void;
+  // Ask-AyahOne actions
+  appendAskMessages: (msgs: AskMsg[]) => void;
+  updateAskMessage: (id: string, patch: Partial<AskMsg>) => void;
+  clearAskHistory: () => void;
+  setAskSending: (v: boolean) => void;
+  setAskLastSendAt: (t: number) => void;
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
@@ -115,6 +145,11 @@ const DEFAULT_STATE = {
   dailyGoalVerses: 10,
   precache: { running: false, loaded: 0, total: 0, error: null } as PrecacheState,
   lastSearchQuery: '',
+  lastGoalCelebrationDate: '',
+  celebrationVisible: false,
+  askHistory: [] as AskMsg[],
+  askSending: false,
+  askLastSendAt: 0,
 };
 
 function addTo(target: BucketStats, h: number, t: number, p: number) {
@@ -135,6 +170,10 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       favorites: state.favorites,
       bookmarks: state.bookmarks,
       dailyGoalVerses: state.dailyGoalVerses,
+      lastGoalCelebrationDate: state.lastGoalCelebrationDate,
+      // Strip pending model bubbles before persisting — they represent an
+      // in-flight request that can no longer be resolved across reloads.
+      askHistory: state.askHistory.filter(m => !m.pending),
     });
     await AsyncStorage.setItem(STORAGE_KEY, data);
   } catch {
@@ -144,7 +183,9 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
 
 type Actions = Pick<AppState,
   'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'setLastRead' | 'setDailyGoal' |
-  'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark'>;
+  'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
+  'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' |
+  'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
@@ -184,11 +225,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       stats.weekly[wk]  = { ...(stats.weekly[wk]  ?? emptyBucket()) };
       stats.monthly[mk] = { ...(stats.monthly[mk] ?? emptyBucket()) };
       stats.yearly[yk]  = { ...(stats.yearly[yk]  ?? emptyBucket()) };
+      const prevTodayVerses = stats.daily[dk].verses;
       addTo(stats.daily[dk],   hasanat, timeSec, pagesDelta);
       addTo(stats.weekly[wk],  hasanat, timeSec, pagesDelta);
       addTo(stats.monthly[mk], hasanat, timeSec, pagesDelta);
       addTo(stats.yearly[yk],  hasanat, timeSec, pagesDelta);
       addTo(stats.total,       hasanat, timeSec, pagesDelta);
+      // Fire the celebration exactly once on the day the user first reaches
+      // their daily verse goal. prevTodayVerses < goal && new >= goal is the
+      // edge; the date guard prevents re-triggering across hot-reloads or
+      // cold launches the same day.
+      const goal = s.dailyGoalVerses;
+      const newTodayVerses = stats.daily[dk].verses;
+      const crossed = prevTodayVerses < goal && newTodayVerses >= goal;
+      const alreadyCelebratedToday = s.lastGoalCelebrationDate === dk;
+      if (crossed && !alreadyCelebratedToday) {
+        return { stats, celebrationVisible: true, lastGoalCelebrationDate: dk };
+      }
       return { stats };
     });
     void persist(get());
@@ -218,6 +271,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setPrecache: (p) => set(s => ({ precache: { ...s.precache, ...p } })),
   setLastSearchQuery: (q) => set({ lastSearchQuery: q }),
+  dismissGoalCelebration: () => set({ celebrationVisible: false }),
+  appendAskMessages: (msgs) => {
+    set(s => {
+      const next = [...s.askHistory, ...msgs];
+      // Keep the most recent ASK_HISTORY_CAP messages so storage stays small.
+      const trimmed = next.length > ASK_HISTORY_CAP ? next.slice(next.length - ASK_HISTORY_CAP) : next;
+      return { askHistory: trimmed };
+    });
+    void persist(get());
+  },
+  updateAskMessage: (id, patch) => {
+    set(s => ({ askHistory: s.askHistory.map(m => m.id === id ? { ...m, ...patch } : m) }));
+    void persist(get());
+  },
+  clearAskHistory: () => {
+    set({ askHistory: [] });
+    void persist(get());
+  },
+  setAskSending: (v) => set({ askSending: v }),
+  setAskLastSendAt: (t) => set({ askLastSendAt: t }),
 }));
 
 export async function hydrateAppStore(): Promise<void> {
@@ -250,6 +323,9 @@ export async function hydrateAppStore(): Promise<void> {
         favorites: data.favorites ?? [],
         bookmarks: data.bookmarks ?? [],
         dailyGoalVerses: data.dailyGoalVerses ?? DEFAULT_STATE.dailyGoalVerses,
+        lastGoalCelebrationDate: data.lastGoalCelebrationDate ?? '',
+        // Strip pending messages on hydrate — they can never resolve now.
+        askHistory: Array.isArray(data.askHistory) ? data.askHistory.filter((m: AskMsg) => !m.pending) : [],
       });
     }
   } finally {

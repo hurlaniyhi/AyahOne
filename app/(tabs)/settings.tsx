@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, View, Text, Pressable, TextInput, ActivityIndicator } from 'react-native';
+import { ScrollView, View, Text, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -7,7 +7,6 @@ import { useTheme, ACCENTS } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { useAppStore, type ThemeMode, type AppLanguage } from '@/store/appStore';
 import { SettingsRow } from '@/components/SettingsRow';
-import { clearPrecacheFlag, memCacheSurahCount, precacheAllSurahs } from '@/data/quranApi';
 
 export default function SettingsScreen() {
   const t = useTheme();
@@ -17,48 +16,7 @@ export default function SettingsScreen() {
   const setSetting = useAppStore(st => st.setSetting);
   const profile = useAppStore(st => st.profile);
   const setProfileName = useAppStore(st => st.setProfileName);
-  const precache = useAppStore(st => st.precache);
-  const setPrecache = useAppStore(st => st.setPrecache);
   const [nameDraft, setNameDraft] = useState(profile.name);
-
-  // Force-rebuild the per-surah cache that powers Search. Clears the
-  // "all cached" flag, then re-runs the bulk download. Progress flows
-  // back through the existing `precache` slice so the row's status and
-  // counter update live without any extra local state.
-  const handleRebuildCache = async () => {
-    if (precache.running) return;
-    const { translationId, arabicScript } = useAppStore.getState().settings;
-    setPrecache({ running: true, loaded: 0, total: 114, error: null });
-    try {
-      await clearPrecacheFlag(translationId, arabicScript);
-      await precacheAllSurahs(
-        translationId,
-        (p) => setPrecache({ loaded: p.loaded, total: p.total, running: !p.done, error: p.error ?? null }),
-        arabicScript,
-      );
-    } catch (e) {
-      setPrecache({ running: false, error: String((e as Error)?.message ?? e) });
-    }
-  };
-
-  // Live in-memory count is the ground truth for what `searchCached` will
-  // actually see. The precache slice can disagree if the AsyncStorage payload
-  // was trimmed by the OS or hydration was skipped; surfacing both numbers
-  // makes that visible at a glance. A "partial" state (some surahs cached but
-  // far below 114) is called out explicitly because that\u2019s exactly what
-  // produces "search only matches verses from the surahs I happened to open".
-  const liveCount = memCacheSurahCount(settings.translationId, settings.arabicScript);
-  const CACHE_OK_THRESHOLD = 110;
-  const cacheIsPartial = !precache.running && !precache.error && liveCount > 0 && liveCount < CACHE_OK_THRESHOLD;
-  const cacheStatus = precache.running
-    ? s.searchCacheLoading.replace('{loaded}', String(precache.loaded)).replace('{total}', String(precache.total || 114))
-    : precache.error
-      ? s.searchCacheError
-      : liveCount >= CACHE_OK_THRESHOLD
-        ? s.searchCacheReady.replace('{loaded}', String(liveCount)).replace('{total}', '114')
-        : liveCount > 0
-          ? s.searchCachePartial.replace('{loaded}', String(liveCount)).replace('{total}', '114')
-          : s.searchCacheMissing;
 
   const modes: { id: ThemeMode; label: string }[] = [
     { id: 'system', label: s.modeSystem },
@@ -167,53 +125,6 @@ export default function SettingsScreen() {
               })}
             </View>
           </View>
-        </View>
-
-        {/* Search cache */}
-        <Text style={{ color: t.colors.textMuted, fontWeight: '700', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', marginTop: t.spacing(2) }}>{s.searchCache}</Text>
-        <View style={{
-          padding: t.spacing(4), backgroundColor: t.colors.surface,
-          borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.hairline,
-          gap: t.spacing(3),
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing(3) }}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={{ color: t.colors.text, fontWeight: '600', fontSize: 16 }}>{s.searchCache}</Text>
-              <Text style={{ color: (precache.error || cacheIsPartial) ? t.colors.danger : t.colors.textMuted, fontSize: 13 }}>
-                {cacheStatus}
-              </Text>
-            </View>
-            <Pressable
-              onPress={handleRebuildCache}
-              disabled={precache.running}
-              style={{
-                paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2),
-                borderRadius: t.radius.pill,
-                backgroundColor: precache.running ? t.colors.border : t.accent.primary,
-                flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
-                opacity: precache.running ? 0.7 : 1,
-              }}
-            >
-              {precache.running ? (
-                <ActivityIndicator size="small" color={t.accent.onPrimary} />
-              ) : (
-                <Ionicons name="refresh" size={16} color={t.accent.onPrimary} />
-              )}
-              <Text style={{ color: t.accent.onPrimary, fontWeight: '700' }}>
-                {precache.running ? s.rebuildingCache : s.rebuildCache}
-              </Text>
-            </Pressable>
-          </View>
-          {/* Progress bar \u2014 only meaningful while a precache is running. */}
-          {precache.running && precache.total > 0 ? (
-            <View style={{ height: 4, borderRadius: 2, backgroundColor: t.colors.border, overflow: 'hidden' }}>
-              <View style={{
-                width: `${Math.min(100, (precache.loaded / precache.total) * 100)}%`,
-                height: '100%', backgroundColor: t.accent.primary,
-              }} />
-            </View>
-          ) : null}
-          <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{s.searchCacheHelp}</Text>
         </View>
 
         {/* Account */}

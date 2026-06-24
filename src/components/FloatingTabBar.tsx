@@ -11,7 +11,7 @@ const TAB_ICONS: Record<string, { on: keyof typeof Ionicons.glyphMap; off: keyof
   index:       { on: 'home',         off: 'home-outline' },
   reading:     { on: 'book',         off: 'book-outline' },
   explore:     { on: 'search',       off: 'search-outline' },
-  leaderboard: { on: 'people',       off: 'people-outline' },
+  ask:         { on: 'chatbubble-ellipses', off: 'chatbubble-ellipses-outline' },
   settings:    { on: 'settings',     off: 'settings-outline' },
 };
 

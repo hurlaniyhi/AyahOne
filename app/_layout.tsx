@@ -10,6 +10,7 @@ import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { hydrateAppStore, useAppStore } from '@/store/appStore';
 import { clearPrecacheFlag, isPrecached, precacheAllSurahs, warmMemoryCache } from '@/data/quranApi';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
+import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 
 function RootStack() {
   const t = useTheme();
@@ -31,6 +32,7 @@ function RootStack() {
         <Stack.Screen name="settings/quran-display" options={{ title: 'Quran Display' }} />
         <Stack.Screen name="settings/themes" options={{ headerShown: false }} />
       </Stack>
+      <GoalCelebrationModal />
     </>
   );
 }
