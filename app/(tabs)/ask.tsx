@@ -140,14 +140,14 @@ export default function AskScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
-      {/* With android.softwareKeyboardLayoutMode='resize' the OS already shrinks
-          the window when the keyboard appears, so KeyboardAvoidingView is a
-          no-op on Android (anything else double-counts and pushes the input
-          off-screen). iOS still needs explicit 'padding' since it has no
-          adjustResize equivalent. */}
+      {/* SDK 54 enables Android edge-to-edge by default, which neuters
+          adjustResize: the IME overlays the bottom inset instead of
+          shrinking the window. So KAV must do the work explicitly on both
+          platforms \u2014 'padding' on iOS, 'height' on Android (shrinks the
+          wrapped flex container, which works regardless of edge-to-edge). */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3), paddingHorizontal: t.spacing(4), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
           {/* Brass-rimmed sparkle medallion echoes the accent style used on
