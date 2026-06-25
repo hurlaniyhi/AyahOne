@@ -1,4 +1,4 @@
-import { askIslamicAi, IslamicAiError, hasApiKey, __retryConfig, type AskTurn } from '../islamicAi';
+import { askIslamicAi, IslamicAiError, hasApiKey, __retryConfig, __models, type AskTurn } from '../islamicAi';
 
 // Skip the real wall-clock backoff between retries so tests stay snappy.
 __retryConfig.delayMs = () => 0;
@@ -121,18 +121,38 @@ describe('askIslamicAi', () => {
     expect(out).toEqual(FULL_ANSWER);
   });
 
-  it('gives up after maxAttempts on persistent 503', async () => {
+  it('gives up after maxAttempts on persistent 503 across the full model ladder', async () => {
     const fetchMock = mockFetchOnce(async () => ({
       ok: false, status: 503, text: async () => 'overloaded', json: async () => ({}),
     }));
     await expect(askIslamicAi(HISTORY)).rejects.toMatchObject({ code: 'http' });
-    expect(fetchMock).toHaveBeenCalledTimes(__retryConfig.maxAttempts);
+    // Outer model loop * inner retry loop \u2014 only after every model has
+    // exhausted its retries do we surface the final error.
+    expect(fetchMock).toHaveBeenCalledTimes(__retryConfig.maxAttempts * __models.length);
   });
 
   it('throws network error when fetch keeps rejecting across all attempts', async () => {
     const fetchMock = mockFetchOnce(async () => { throw new Error('offline'); });
     await expect(askIslamicAi(HISTORY)).rejects.toMatchObject({ code: 'network' });
-    expect(fetchMock).toHaveBeenCalledTimes(__retryConfig.maxAttempts);
+    expect(fetchMock).toHaveBeenCalledTimes(__retryConfig.maxAttempts * __models.length);
+  });
+
+  it('falls back to the next model when the primary keeps returning 503', async () => {
+    // First model exhausts its retries with 503, the fallback model returns 200.
+    const primaryAttempts = __retryConfig.maxAttempts;
+    let calls = 0;
+    const fetchMock = (global as any).fetch = jest.fn().mockImplementation(async (url: string) => {
+      calls += 1;
+      if (calls <= primaryAttempts) {
+        expect(url).toContain(__models[0].id);
+        return { ok: false, status: 503, text: async () => 'overloaded', json: async () => ({}) };
+      }
+      expect(url).toContain(__models[1].id);
+      return geminiOk(FULL_ANSWER);
+    });
+    const out = await askIslamicAi(HISTORY);
+    expect(out).toEqual(FULL_ANSWER);
+    expect(fetchMock).toHaveBeenCalledTimes(primaryAttempts + 1);
   });
 
   it('throws blocked when the response carries a promptFeedback.blockReason', async () => {

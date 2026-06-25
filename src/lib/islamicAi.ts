@@ -9,8 +9,22 @@
 // gemini-2.0-flash was shut down on 2026-06-01; the recommended replacement
 // is gemini-3.5-flash. Same v1beta endpoint, same `x-goog-api-key` header,
 // same generationConfig + responseSchema shape, so only the model id changes.
-const ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent';
+//
+// Model fallback ladder: 3.5-flash is the newest free-tier Flash and is
+// regularly "overloaded" (HTTP 503) on the free quota. When that happens we
+// transparently fall through to 2.5-flash, which is older but far more stable.
+// Thinking is configured per-model because the field shapes differ:
+// 3.x uses `thinkingLevel` (string), 2.x uses `thinkingBudget` (integer).
+type ModelSpec = {
+  id: string;
+  thinkingConfig: { thinkingLevel: string } | { thinkingBudget: number };
+};
+export const __models: ModelSpec[] = [
+  { id: 'gemini-3.5-flash', thinkingConfig: { thinkingLevel: 'minimal' } },
+  { id: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 0 } },
+];
+const endpointFor = (modelId: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`;
 
 // Multi-paragraph system prompt assembled in one place so the prompt is
 // auditable. Order matters: identity → scope refusal → source hierarchy →
@@ -143,17 +157,17 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   if (!apiKey) throw new IslamicAiError('Missing EXPO_PUBLIC_GEMINI_API_KEY', 'no-key');
 
-  const body = {
+  const bodyFor = (model: ModelSpec) => ({
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: history.map(turn => ({ role: turn.role, parts: [{ text: turn.text }] })),
     generationConfig: {
       temperature: 0.3,
       topP: 0.9,
-      // Gemini 3.5 Flash thinks by default at `medium` level, which silently
-      // burns hundreds-to-thousands of output tokens before any answer text
-      // is emitted. `minimal` is right for factual Q&A and frees the entire
-      // budget for the visible answer + citations.
-      thinkingConfig: { thinkingLevel: 'minimal' },
+      // Thinking shape differs across model families: 3.x uses `thinkingLevel`,
+      // 2.x uses `thinkingBudget`. The spec carries the right one per model.
+      // We aim for the cheapest level on both: factual Q&A doesn't need CoT,
+      // and any thinking tokens are subtracted from the visible-answer budget.
+      thinkingConfig: model.thinkingConfig,
       // Max for Flash. With responseSchema enabled, Gemini will silently
       // truncate strings (while keeping the outer JSON valid) once the
       // budget is exhausted \u2014 so we want as much headroom as the model allows.
@@ -161,68 +175,78 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
     },
-  };
+  });
 
+  // Outer loop: walk the model ladder. Inner loop: per-model retry with
+  // exponential backoff. We only advance to the next model on transient
+  // failures (retryable HTTP, network) \u2014 semantic errors (auth, blocked,
+  // parse, MAX_TOKENS) would fail identically on any model, so they short-circuit.
   let lastError: IslamicAiError | undefined;
-  for (let attempt = 1; attempt <= __retryConfig.maxAttempts; attempt++) {
-    if (attempt > 1) await sleep(__retryConfig.delayMs(attempt - 1));
+  for (const model of __models) {
+    const endpoint = endpointFor(model.id);
+    const body = bodyFor(model);
 
-    let resp: Response;
-    try {
-      resp = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      // Network blips (DNS, dropped Wi-Fi) are worth a couple of retries.
-      lastError = new IslamicAiError(String((e as Error)?.message ?? e), 'network');
-      continue;
-    }
+    for (let attempt = 1; attempt <= __retryConfig.maxAttempts; attempt++) {
+      if (attempt > 1) await sleep(__retryConfig.delayMs(attempt - 1));
 
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      const err = new IslamicAiError(`HTTP ${resp.status}: ${errText.slice(0, 200)}`, 'http');
-      if (RETRYABLE_STATUSES.has(resp.status)) {
-        lastError = err;
+      let resp: Response;
+      try {
+        resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        // Network blips (DNS, dropped Wi-Fi) are worth a couple of retries.
+        lastError = new IslamicAiError(String((e as Error)?.message ?? e), 'network');
         continue;
       }
-      throw err;
-    }
 
-    const json: any = await resp.json().catch(() => null);
-    const candidate = json?.candidates?.[0];
-    const text: string | undefined = candidate?.content?.parts?.[0]?.text;
-    const finishReason: string | undefined = candidate?.finishReason;
-    const blockReason: string | undefined = json?.promptFeedback?.blockReason;
-    if (blockReason) throw new IslamicAiError(`Blocked: ${blockReason}`, 'blocked');
-    // MAX_TOKENS with structured-output is the worst case: Gemini keeps the
-    // outer JSON well-formed but silently truncates string fields, so parsing
-    // succeeds while the visible answer is cut off mid-sentence. We surface
-    // it as a parse error in both the "no text at all" and "text present but
-    // budget exhausted" branches so the UI can prompt the user to retry.
-    if (finishReason === 'MAX_TOKENS') {
-      throw new IslamicAiError('Response truncated (MAX_TOKENS). Try a more specific question.', 'parse');
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        const err = new IslamicAiError(`HTTP ${resp.status}: ${errText.slice(0, 200)}`, 'http');
+        if (RETRYABLE_STATUSES.has(resp.status)) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
+
+      const json: any = await resp.json().catch(() => null);
+      const candidate = json?.candidates?.[0];
+      const text: string | undefined = candidate?.content?.parts?.[0]?.text;
+      const finishReason: string | undefined = candidate?.finishReason;
+      const blockReason: string | undefined = json?.promptFeedback?.blockReason;
+      if (blockReason) throw new IslamicAiError(`Blocked: ${blockReason}`, 'blocked');
+      // MAX_TOKENS with structured-output is the worst case: Gemini keeps the
+      // outer JSON well-formed but silently truncates string fields, so parsing
+      // succeeds while the visible answer is cut off mid-sentence. We surface
+      // it as a parse error in both the "no text at all" and "text present but
+      // budget exhausted" branches so the UI can prompt the user to retry.
+      if (finishReason === 'MAX_TOKENS') {
+        throw new IslamicAiError('Response truncated (MAX_TOKENS). Try a more specific question.', 'parse');
+      }
+      if (!text) throw new IslamicAiError('Empty model response', 'parse');
+      try {
+        // Defensive: some models occasionally wrap structured output in ```json
+        // fences despite `responseMimeType: application/json`. Strip them so
+        // we don't fail on otherwise-valid JSON.
+        const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+        const parsed = JSON.parse(cleaned) as AskAnswer;
+        return {
+          inScope:    !!parsed.inScope,
+          answer:     String(parsed.answer ?? '').trim(),
+          references: Array.isArray(parsed.references) ? parsed.references : [],
+          opinions:   Array.isArray(parsed.opinions) ? parsed.opinions : [],
+        };
+      } catch {
+        // Include a snippet so the error subtitle in the UI shows roughly where
+        // parsing failed (helps catch future schema drifts).
+        const snippet = text.slice(0, 120).replace(/\s+/g, ' ');
+        throw new IslamicAiError(`Could not parse model JSON: ${snippet}\u2026`, 'parse');
+      }
     }
-    if (!text) throw new IslamicAiError('Empty model response', 'parse');
-    try {
-      // Defensive: some models occasionally wrap structured output in ```json
-      // fences despite `responseMimeType: application/json`. Strip them so
-      // we don't fail on otherwise-valid JSON.
-      const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-      const parsed = JSON.parse(cleaned) as AskAnswer;
-      return {
-        inScope:    !!parsed.inScope,
-        answer:     String(parsed.answer ?? '').trim(),
-        references: Array.isArray(parsed.references) ? parsed.references : [],
-        opinions:   Array.isArray(parsed.opinions) ? parsed.opinions : [],
-      };
-    } catch {
-      // Include a snippet so the error subtitle in the UI shows roughly where
-      // parsing failed (helps catch future schema drifts).
-      const snippet = text.slice(0, 120).replace(/\s+/g, ' ');
-      throw new IslamicAiError(`Could not parse model JSON: ${snippet}\u2026`, 'parse');
-    }
+    // All retries on this model exhausted; loop continues to the next model.
   }
   throw lastError ?? new IslamicAiError('Request failed', 'network');
 }

@@ -140,7 +140,15 @@ export default function AskScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* With android.softwareKeyboardLayoutMode='resize' the OS already shrinks
+          the window when the keyboard appears, so KeyboardAvoidingView is a
+          no-op on Android (anything else double-counts and pushes the input
+          off-screen). iOS still needs explicit 'padding' since it has no
+          adjustResize equivalent. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3), paddingHorizontal: t.spacing(4), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
           {/* Brass-rimmed sparkle medallion echoes the accent style used on
               the home/reader to anchor the screen identity. */}
