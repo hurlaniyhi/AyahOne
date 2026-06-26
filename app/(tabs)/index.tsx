@@ -14,7 +14,7 @@ import { StreakBars } from '@/components/StreakBars';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { PrecacheBanner } from '@/components/PrecacheBanner';
 import { GoalEditSheet } from '@/components/GoalEditSheet';
-import { formatDuration, formatNumber } from '@/lib/format';
+import { formatDuration, formatNumber, todayKey } from '@/lib/format';
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -24,9 +24,10 @@ export default function HomeScreen() {
   const router = useRouter();
   const profile = useAppStore(st => st.profile);
   const lastRead = useAppStore(st => st.lastRead);
-  // Furthest ayah reached in Surah Al-Kahf (18) — drives the Friday banner's
-  // progress bar and its "continue from where you stopped" tap target.
-  const kahfProgress = useAppStore(st => st.surahProgress[18] ?? 0);
+  // Friday-scoped Al-Kahf progress (resets every Friday). The Friday banner
+  // reads from this rather than lifetime surahProgress[18] so old reads from
+  // previous weeks don't pre-fill today's progress bar.
+  const kahfFriday = useAppStore(st => st.kahfFriday);
   const dailyGoal = useAppStore(st => st.dailyGoalVerses);
   const hideHasanat = useAppStore(st => st.settings.hideHasanat);
   const today = useTodayStats();
@@ -98,9 +99,12 @@ export default function HomeScreen() {
 
         {new Date().getDay() === 5 && (() => {
           const KAHF_TOTAL = 110;
-          const kahfRead = Math.min(KAHF_TOTAL, kahfProgress);
+          // Only count progress if the stored entry actually belongs to TODAY.
+          // A `kahfFriday` from a previous Friday must read as zero this week.
+          const todaysAyah = kahfFriday && kahfFriday.date === todayKey() ? kahfFriday.ayah : 0;
+          const kahfRead = Math.min(KAHF_TOTAL, todaysAyah);
           const kahfPct = kahfRead / KAHF_TOTAL;
-          const kahfResume = Math.min(KAHF_TOTAL, Math.max(1, kahfProgress || 1));
+          const kahfResume = Math.min(KAHF_TOTAL, Math.max(1, todaysAyah || 1));
           return (
             <Pressable
               // `nosave=1` keeps the Reading menu's "Start Reading Quran" pointer

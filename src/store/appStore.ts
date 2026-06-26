@@ -31,6 +31,17 @@ export interface Settings {
   showTransliteration: boolean;
   hideHasanat: boolean;
   showReadingLevel: boolean;
+  // Master switch for local reminders (daily-goal nudge + Friday Al-Kahf
+  // nudge). When false, syncReminders() cancels any pending schedules and
+  // skips re-creating them. Defaults to true so reminders work out of the
+  // box for users who grant the OS permission.
+  notificationsEnabled: boolean;
+  // User-customised reminder times in "HH:MM" 24-hour local form. Empty
+  // string means "not customised yet"; the picker UI then opens at the
+  // current wall-clock time and the scheduler falls back to 20:00 / 09:00
+  // so reminders still fire if the user never opens the picker.
+  goalReminderTime: string;
+  kahfReminderTime: string;
 }
 
 export interface BucketStats {
@@ -67,9 +78,15 @@ export interface AppState {
   stats: Stats;
   profile: { name: string; photoUri: string | null };
   lastRead: ReadingLocation | null;
-  // Furthest ayah reached per surah, keyed by surah number (1-114). Drives
-  // surah-level progress affordances like the Friday Al-Kahf banner.
+  // Furthest ayah reached per surah, keyed by surah number (1-114). Lifetime
+  // value; never resets. Useful for "ever-read" affordances but NOT for the
+  // Friday Al-Kahf banner (which is a weekly devotional and must reset).
   surahProgress: Record<number, number>;
+  // Today-scoped progress through Surah Al-Kahf, used by the Friday banner.
+  // `date` is the todayKey() of the Friday the reading happened on; if the
+  // current day's key differs, the banner treats progress as 0. `null` means
+  // the user has never recorded Kahf reading on a Friday.
+  kahfFriday: { date: string; ayah: number } | null;
   favorites: string[];  // "surah:ayah"
   bookmarks: string[];  // "surah:ayah"
   dailyGoalVerses: number;
@@ -132,6 +149,9 @@ const DEFAULT_SETTINGS: Settings = {
   showTransliteration: false,
   hideHasanat: false,
   showReadingLevel: true,
+  notificationsEnabled: true,
+  goalReminderTime: '',
+  kahfReminderTime: '',
 };
 
 const DEFAULT_STATE = {
@@ -140,6 +160,7 @@ const DEFAULT_STATE = {
   profile: { name: '', photoUri: null as string | null },
   lastRead: null as ReadingLocation | null,
   surahProgress: {} as Record<number, number>,
+  kahfFriday: null as { date: string; ayah: number } | null,
   favorites: [] as string[],
   bookmarks: [] as string[],
   dailyGoalVerses: 10,
@@ -167,6 +188,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       profile: state.profile,
       lastRead: state.lastRead,
       surahProgress: state.surahProgress,
+      kahfFriday: state.kahfFriday,
       favorites: state.favorites,
       bookmarks: state.bookmarks,
       dailyGoalVerses: state.dailyGoalVerses,
@@ -250,8 +272,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!Number.isFinite(surah) || !Number.isFinite(ayah) || ayah < 1) return;
     set(s => {
       const prev = s.surahProgress[surah] ?? 0;
-      if (ayah <= prev) return s;
-      return { surahProgress: { ...s.surahProgress, [surah]: ayah } };
+      const grew = ayah > prev;
+      // Friday-scoped Al-Kahf tracker. Only fires when the user is actually
+      // reading Kahf (18) AND today is Friday (getDay() === 5). The date stamp
+      // means last week's progress disappears the moment the calendar rolls
+      // over, so the banner never shows stale lifetime progress.
+      const isFridayKahf = surah === 18 && new Date().getDay() === 5;
+      let kahfFriday = s.kahfFriday;
+      if (isFridayKahf) {
+        const today = todayKey();
+        if (!kahfFriday || kahfFriday.date !== today) {
+          kahfFriday = { date: today, ayah };
+        } else if (ayah > kahfFriday.ayah) {
+          kahfFriday = { date: today, ayah };
+        }
+      }
+      if (!grew && kahfFriday === s.kahfFriday) return s;
+      return {
+        surahProgress: grew ? { ...s.surahProgress, [surah]: ayah } : s.surahProgress,
+        kahfFriday,
+      };
     });
     void persist(get());
   },
@@ -320,6 +360,10 @@ export async function hydrateAppStore(): Promise<void> {
         profile: { ...DEFAULT_STATE.profile, ...(data.profile ?? {}) },
         lastRead: data.lastRead ?? null,
         surahProgress: data.surahProgress ?? {},
+        kahfFriday: data.kahfFriday && typeof data.kahfFriday === 'object'
+          && typeof data.kahfFriday.date === 'string'
+          && typeof data.kahfFriday.ayah === 'number'
+          ? data.kahfFriday : null,
         favorites: data.favorites ?? [],
         bookmarks: data.bookmarks ?? [],
         dailyGoalVerses: data.dailyGoalVerses ?? DEFAULT_STATE.dailyGoalVerses,

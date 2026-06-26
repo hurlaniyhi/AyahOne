@@ -50,6 +50,38 @@ describe('parseTajweed', () => {
     expect(out).toEqual([{ text: 'foo [z[bar] baz' }]);
   });
 
+  it('drops bare positional markers like [s] without leaking brackets', () => {
+    // Real case from Al-Baqarah 2:190 in the quran-tajweed edition: a bare
+    // `[s]` marks the sakta / waqf position and must not render as text.
+    const out = parseTajweed('وَلَا تَعۡتَدُوٓاْ[s] إِنَّ');
+    expect(out).toEqual([
+      { text: 'وَلَا تَعۡتَدُوٓاْ' },
+      { text: ' إِنَّ' },
+    ]);
+  });
+
+  it('drops bare markers with the :NUM suffix', () => {
+    const out = parseTajweed('foo[s:1]bar');
+    expect(out).toEqual([{ text: 'foo' }, { text: 'bar' }]);
+  });
+
+  it('matches uppercase rule letters and normalises the rule key', () => {
+    // The API sometimes emits `[S]` / `[H[...]` instead of the lowercase
+    // form; both must be consumed and any wrapped content must surface
+    // under the canonical lowercase rule.
+    const wrapped = parseTajweed('بِسْمِ [H[ٱ]للَّهِ');
+    expect(wrapped).toEqual([
+      { text: 'بِسْمِ ' },
+      { text: 'ٱ', rule: 'h' },
+      { text: 'للَّهِ' },
+    ]);
+    const bare = parseTajweed('وَلَا تَعۡتَدُوٓاْ[S] إِنَّ');
+    expect(bare).toEqual([
+      { text: 'وَلَا تَعۡتَدُوٓاْ' },
+      { text: ' إِنَّ' },
+    ]);
+  });
+
   it('covers every declared rule code', () => {
     const allRules = Object.keys(TAJWEED_COLORS) as Array<keyof typeof TAJWEED_COLORS>;
     for (const r of allRules) {
@@ -82,6 +114,19 @@ describe('stripTajweed', () => {
 
   it('keeps unrelated brackets untouched', () => {
     expect(stripTajweed('keep [z[me]')).toBe('keep [z[me]');
+  });
+
+  it('removes bare positional markers entirely', () => {
+    expect(stripTajweed('وَلَا تَعۡتَدُوٓاْ[s] إِنَّ')).toBe('وَلَا تَعۡتَدُوٓاْ إِنَّ');
+  });
+
+  it('removes bare markers with the :NUM suffix', () => {
+    expect(stripTajweed('foo[s:1]bar')).toBe('foobar');
+  });
+
+  it('strips uppercase tags the same as lowercase', () => {
+    expect(stripTajweed('بِسْمِ [H[ٱ]للَّهِ')).toBe('بِسْمِ ٱللَّهِ');
+    expect(stripTajweed('وَلَا تَعۡتَدُوٓاْ[S] إِنَّ')).toBe('وَلَا تَعۡتَدُوٓاْ إِنَّ');
   });
 });
 

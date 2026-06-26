@@ -12,6 +12,8 @@ import {
 } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { arabicFontFor } from '@/lib/quranText';
+import { ArabesqueMark } from '@/components/ArabesqueMark';
+import { SettingsSection } from '@/components/SettingsRow';
 import {
   TAJWEED_COLORS,
   TAJWEED_LABELS,
@@ -80,43 +82,53 @@ function FontSizeSlider({
   ).current;
 
   const fillPct = (value - ARABIC_FONT_MIN) / (ARABIC_FONT_MAX - ARABIC_FONT_MIN);
-  const thumbSize = 24;
+  const thumbSize = 26;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
-      <Text style={{ color: t.colors.textMuted, fontSize: 14, fontWeight: '700' }}>T</Text>
-      <View
-        onLayout={e => setTrackW(e.nativeEvent.layout.width)}
-        style={{ flex: 1, height: 36, justifyContent: 'center' }}
-        {...pan.panHandlers}
-      >
-        {/* Track */}
-        <View style={{
-          position: 'absolute', left: 0, right: 0, height: 4, borderRadius: 2,
-          backgroundColor: t.colors.border,
-        }} />
-        {/* Accent-filled portion up to the thumb */}
-        <View style={{
-          position: 'absolute', left: 0, height: 4, borderRadius: 2,
-          width: `${fillPct * 100}%`,
-          backgroundColor: t.accent.primary,
-        }} />
-        {/* Draggable thumb — positioned by interpolating across the measured
-            track width so the gesture and the visual stay in lockstep. */}
+    <View style={{ gap: t.spacing(2) }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
+        <Text style={{ color: t.colors.textMuted, fontSize: 14, fontWeight: '700' }}>A</Text>
         <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: (36 - thumbSize) / 2,
-            left: trackW > 0 ? trackW * fillPct - thumbSize / 2 : -thumbSize,
-            width: thumbSize, height: thumbSize, borderRadius: thumbSize / 2,
+          onLayout={e => setTrackW(e.nativeEvent.layout.width)}
+          style={{ flex: 1, height: 36, justifyContent: 'center' }}
+          {...pan.panHandlers}
+        >
+          {/* Track */}
+          <View style={{
+            position: 'absolute', left: 0, right: 0, height: 4, borderRadius: 2,
+            backgroundColor: t.colors.border,
+          }} />
+          {/* Accent-filled portion up to the thumb */}
+          <View style={{
+            position: 'absolute', left: 0, height: 4, borderRadius: 2,
+            width: `${fillPct * 100}%`,
             backgroundColor: t.accent.primary,
-            borderWidth: 3, borderColor: t.colors.background,
-            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
-            shadowOffset: { width: 0, height: 2 }, elevation: 3,
-          }}
-        />
+          }} />
+          {/* Draggable thumb — positioned by interpolating across the measured
+              track width so the gesture and the visual stay in lockstep. */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: (36 - thumbSize) / 2,
+              left: trackW > 0 ? trackW * fillPct - thumbSize / 2 : -thumbSize,
+              width: thumbSize, height: thumbSize, borderRadius: thumbSize / 2,
+              backgroundColor: t.accent.primary,
+              borderWidth: 3, borderColor: t.colors.background,
+              shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 5,
+              shadowOffset: { width: 0, height: 2 }, elevation: 4,
+            }}
+          />
+        </View>
+        <Text style={{ color: t.colors.textMuted, fontSize: 26, fontWeight: '700' }}>A</Text>
       </View>
-      <Text style={{ color: t.colors.textMuted, fontSize: 24, fontWeight: '700' }}>T</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Text style={{ color: t.colors.textMuted, fontSize: 11, fontWeight: '600' }}>
+          {ARABIC_FONT_MIN}px
+        </Text>
+        <Text style={{ color: t.colors.textMuted, fontSize: 11, fontWeight: '600' }}>
+          {ARABIC_FONT_MAX}px
+        </Text>
+      </View>
     </View>
   );
 }
@@ -129,16 +141,39 @@ export default function QuranDisplayScreen() {
 
   const previewSize = settings.arabicFontSize;
 
+  const scriptOptions: { id: ArabicScript; label: string }[] = [
+    { id: 'uthmani', label: s.scriptUthmani },
+    { id: 'indopak', label: s.scriptIndopak },
+    { id: 'tajweed', label: s.scriptTajweed },
+  ];
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['bottom']}>
-      <ScrollView contentContainerStyle={{ padding: t.spacing(4), gap: t.spacing(5) }}>
-        {/* Live preview */}
+      <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
+        {/* Live preview — surfaceElevated card with brass arabesque corners
+            so the Bismillah feels like a mushaf page rather than a swatch. */}
         <View style={{
           padding: t.spacing(5), borderRadius: t.radius.lg,
-          backgroundColor: t.colors.surface,
-          borderWidth: 1, borderColor: t.accent.primary,
-          borderStyle: 'dashed', alignItems: 'center',
+          backgroundColor: t.colors.surfaceElevated,
+          borderWidth: 0.75, borderColor: t.colors.hairline,
+          alignItems: 'center', overflow: 'hidden',
+          shadowColor: '#000',
+          shadowOpacity: t.mode === 'dark' ? 0.35 : 0.06,
+          shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+          elevation: 3,
         }}>
+          <View pointerEvents="none" style={{ position: 'absolute', top: -16, left: -16, opacity: 0.18 }}>
+            <ArabesqueMark size={72} color={t.colors.brass} />
+          </View>
+          <View pointerEvents="none" style={{ position: 'absolute', bottom: -16, right: -16, opacity: 0.18 }}>
+            <ArabesqueMark size={72} color={t.colors.brass} />
+          </View>
+          <Text style={{
+            color: t.colors.brass, fontSize: 11, fontWeight: '800',
+            letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: t.spacing(2),
+          }}>
+            {scriptOptions.find(o => o.id === settings.arabicScript)?.label}
+          </Text>
           <Text style={{
             color: t.colors.text, fontSize: previewSize,
             lineHeight: Math.round(previewSize * 1.8),
@@ -150,14 +185,26 @@ export default function QuranDisplayScreen() {
         </View>
 
         {/* Font size */}
-        <View style={{ gap: t.spacing(3) }}>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 16 }}>
+        <SettingsSection title={s.fontSize} />
+        <View style={{
+          padding: t.spacing(4), backgroundColor: t.colors.surface,
+          borderRadius: t.radius.lg,
+          borderWidth: 0.75, borderColor: t.colors.hairline,
+          gap: t.spacing(3),
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: t.colors.text, fontWeight: '600', fontSize: 15 }}>
               {s.fontSize}
             </Text>
-            <Text style={{ color: t.colors.textMuted, fontWeight: '600', fontSize: 13 }}>
-              {settings.arabicFontSize}px
-            </Text>
+            <View style={{
+              paddingHorizontal: t.spacing(3), paddingVertical: 4,
+              borderRadius: t.radius.pill,
+              backgroundColor: t.accent.primarySoft,
+            }}>
+              <Text style={{ color: t.accent.primary, fontWeight: '800', fontSize: 13 }}>
+                {settings.arabicFontSize}px
+              </Text>
+            </View>
           </View>
           <FontSizeSlider
             value={settings.arabicFontSize}
@@ -165,40 +212,44 @@ export default function QuranDisplayScreen() {
           />
         </View>
 
-        {/* Script */}
-        <View style={{ gap: t.spacing(3) }}>
-          <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 16 }}>
-            {s.quranScript}
-          </Text>
-          {([
-            { id: 'uthmani' as const, label: s.scriptUthmani },
-            { id: 'indopak' as const, label: s.scriptIndopak },
-            { id: 'tajweed' as const, label: s.scriptTajweed },
-          ]).map(opt => {
+        {/* Script — vertical cards: label on top, Arabic preview below. The
+            preview always uses a fixed line height so the three cards align. */}
+        <SettingsSection title={s.quranScript} />
+        <View style={{ gap: t.spacing(2) }}>
+          {scriptOptions.map(opt => {
             const active = settings.arabicScript === opt.id;
             return (
               <Pressable
                 key={opt.id}
-                onPress={() => setSetting('arabicScript', opt.id as ArabicScript)}
+                onPress={() => setSetting('arabicScript', opt.id)}
                 style={{
                   padding: t.spacing(4), borderRadius: t.radius.lg,
                   backgroundColor: t.colors.surface,
-                  borderWidth: active ? 2 : 1,
-                  borderColor: active ? t.accent.primary : t.colors.border,
-                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  gap: t.spacing(3),
+                  borderWidth: active ? 1.5 : 0.75,
+                  borderColor: active ? t.accent.primary : t.colors.hairline,
+                  gap: t.spacing(2),
                 }}
               >
-                <Text style={{
-                  color: active ? t.accent.primary : t.colors.text,
-                  fontWeight: '700', fontSize: 16,
-                }}>
-                  {opt.label}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{
+                    color: active ? t.accent.primary : t.colors.text,
+                    fontWeight: '700', fontSize: 16,
+                  }}>
+                    {opt.label}
+                  </Text>
+                  {active ? (
+                    <Ionicons name="checkmark-circle" size={22} color={t.accent.primary} />
+                  ) : (
+                    <View style={{
+                      width: 22, height: 22, borderRadius: 11,
+                      borderWidth: 1.5, borderColor: t.colors.border,
+                    }} />
+                  )}
+                </View>
                 <Text
                   numberOfLines={1}
                   style={{
-                    flex: 1, color: t.colors.text, fontSize: 18,
+                    color: t.colors.text, fontSize: 22,
                     textAlign: 'right', writingDirection: 'rtl',
                     fontFamily: arabicFontFor(opt.id),
                   }}
@@ -211,42 +262,44 @@ export default function QuranDisplayScreen() {
                       ))
                     : BISMILLAH[opt.id]}
                 </Text>
-                {active && (
-                  <Ionicons name="checkmark-circle" size={22} color={t.accent.primary} />
-                )}
               </Pressable>
             );
           })}
         </View>
 
-        {/* Tajweed legend — only shown while the tajweed script is active */}
+        {/* Tajweed legend — only shown while the tajweed script is active.
+            Each rule sits in its own subtly-tinted chip so the colour and
+            label stay paired even with a long list. */}
         {settings.arabicScript === 'tajweed' && (
-          <View style={{ gap: t.spacing(3) }}>
-            <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 16 }}>
-              {s.tajweedLegend}
-            </Text>
+          <>
+            <SettingsSection title={s.tajweedLegend} />
             <View style={{
-              padding: t.spacing(4), borderRadius: t.radius.lg,
+              padding: t.spacing(3), borderRadius: t.radius.lg,
               backgroundColor: t.colors.surface,
-              borderWidth: 1, borderColor: t.colors.border,
-              flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing(3),
+              borderWidth: 0.75, borderColor: t.colors.hairline,
+              flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing(2),
             }}>
               {TAJWEED_LEGEND_ORDER.map(rule => (
                 <View
                   key={rule}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2), minWidth: '46%' }}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
+                    paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2),
+                    borderRadius: t.radius.pill,
+                    backgroundColor: t.colors.surfaceMuted,
+                  }}
                 >
                   <View style={{
-                    width: 14, height: 14, borderRadius: 7,
+                    width: 10, height: 10, borderRadius: 5,
                     backgroundColor: TAJWEED_COLORS[rule],
                   }} />
-                  <Text style={{ color: t.colors.text, fontSize: 13 }}>
+                  <Text style={{ color: t.colors.text, fontSize: 12, fontWeight: '600' }}>
                     {TAJWEED_LABELS[rule]}
                   </Text>
                 </View>
               ))}
             </View>
-          </View>
+          </>
         )}
       </ScrollView>
     </SafeAreaView>

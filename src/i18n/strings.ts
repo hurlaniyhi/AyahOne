@@ -111,6 +111,26 @@ const EN: Dict = {
   askRetry: 'Retry',
   askSourcesBadge: 'Cites authentic sources',
   askPoweredBy: 'Powered by Google Gemini',
+  notifications: 'Notifications',
+  notificationsToggle: 'Reading reminders',
+  notificationsToggleHint: 'Daily goal nudge and Friday Surah Al-Kahf reminder.',
+  notifPermissionDenied: 'Notifications are blocked. Enable them in the system Settings for AyahOne.',
+  notifGoalTitle: 'Daily Quran goal',
+  notifGoalNotStarted: 'You haven\u2019t started today\u2019s reading yet — {goal} verses to go.',
+  notifGoalRemaining: '{n} {label} left to reach today\u2019s goal.',
+  notifGoalMet: 'Tomorrow\u2019s goal: {goal} verses, in shaa Allah.',
+  notifGoalVerseSingular: 'verse',
+  notifGoalVersePlural: 'verses',
+  notifKahfTitle: 'Surah Al-Kahf \u2014 Friday',
+  notifKahfNotStarted: 'It\u2019s Friday \u2014 read Surah Al-Kahf for light until the next Friday.',
+  notifKahfInProgress: 'You\u2019re on ayah {n}/{total}. Continue Surah Al-Kahf today.',
+  notifKahfDone: 'See you next Friday, in shaa Allah.',
+  notifGoalTimeLabel: 'Daily goal time',
+  notifKahfTimeLabel: 'Friday Al-Kahf time',
+  notifTimePickerTitle: 'Pick a time',
+  notifTimePickerDone: 'Done',
+  notifTimePickerCancel: 'Cancel',
+  dailyGoalDesc: 'How many verses to aim for each day.',
 };
 
 const AR: Dict = {
@@ -222,6 +242,26 @@ const AR: Dict = {
   askRetry: 'إعادة المحاولة',
   askSourcesBadge: 'مع مصادر موثوقة',
   askPoweredBy: 'مدعوم بواسطة Google Gemini',
+  notifications: 'الإشعارات',
+  notificationsToggle: 'تذكيرات القراءة',
+  notificationsToggleHint: 'تذكير بالهدف اليومي وتذكير بسورة الكهف يوم الجمعة.',
+  notifPermissionDenied: 'الإشعارات محظورة. فعّلها من إعدادات النظام لتطبيق AyahOne.',
+  notifGoalTitle: 'هدف القرآن اليومي',
+  notifGoalNotStarted: 'لم تبدأ قراءة اليوم بعد — تبقّى {goal} آية.',
+  notifGoalRemaining: 'تبقّى {n} {label} للوصول إلى هدف اليوم.',
+  notifGoalMet: 'هدف الغد: {goal} آية، إن شاء الله.',
+  notifGoalVerseSingular: 'آية',
+  notifGoalVersePlural: 'آية',
+  notifKahfTitle: 'سورة الكهف \u2014 الجمعة',
+  notifKahfNotStarted: 'اليوم الجمعة \u2014 اقرأ سورة الكهف لتنال نورًا حتى الجمعة القادمة.',
+  notifKahfInProgress: 'أنت عند الآية {n}/{total}. أكمل سورة الكهف اليوم.',
+  notifKahfDone: 'إلى الجمعة القادمة، إن شاء الله.',
+  notifGoalTimeLabel: 'وقت الهدف اليومي',
+  notifKahfTimeLabel: 'وقت سورة الكهف يوم الجمعة',
+  notifTimePickerTitle: 'اختر وقتًا',
+  notifTimePickerDone: 'تم',
+  notifTimePickerCancel: 'إلغاء',
+  dailyGoalDesc: 'كم آية تريد قراءتها كل يوم.',
 };
 
 const FR: Dict = {
@@ -333,6 +373,26 @@ const FR: Dict = {
   askRetry: 'R\u00e9essayer',
   askSourcesBadge: 'Avec sources authentiques',
   askPoweredBy: 'Propuls\u00e9 par Google Gemini',
+  notifications: 'Notifications',
+  notificationsToggle: 'Rappels de lecture',
+  notificationsToggleHint: 'Rappel d\u2019objectif quotidien et rappel de la sourate Al-Kahf le vendredi.',
+  notifPermissionDenied: 'Les notifications sont bloqu\u00e9es. Activez-les dans les Param\u00e8tres syst\u00e8me d\u2019AyahOne.',
+  notifGoalTitle: 'Objectif quotidien du Coran',
+  notifGoalNotStarted: 'Vous n\u2019avez pas commenc\u00e9 votre lecture aujourd\u2019hui \u2014 {goal} versets restants.',
+  notifGoalRemaining: '{n} {label} restants pour atteindre l\u2019objectif du jour.',
+  notifGoalMet: 'Objectif de demain : {goal} versets, in cha Allah.',
+  notifGoalVerseSingular: 'verset',
+  notifGoalVersePlural: 'versets',
+  notifKahfTitle: 'Sourate Al-Kahf \u2014 Vendredi',
+  notifKahfNotStarted: 'C\u2019est vendredi \u2014 lisez la sourate Al-Kahf pour avoir de la lumi\u00e8re jusqu\u2019au vendredi suivant.',
+  notifKahfInProgress: 'Vous \u00eates au verset {n}/{total}. Continuez la sourate Al-Kahf aujourd\u2019hui.',
+  notifKahfDone: '\u00c0 vendredi prochain, in cha Allah.',
+  notifGoalTimeLabel: 'Heure de l\u2019objectif quotidien',
+  notifKahfTimeLabel: 'Heure d\u2019Al-Kahf le vendredi',
+  notifTimePickerTitle: 'Choisir une heure',
+  notifTimePickerDone: 'Terminer',
+  notifTimePickerCancel: 'Annuler',
+  dailyGoalDesc: 'Combien de versets viser chaque jour.',
 };
 
 const TABLE: Record<AppLanguage, Dict> = { en: EN, ar: AR, fr: FR };
@@ -340,6 +400,12 @@ const TABLE: Record<AppLanguage, Dict> = { en: EN, ar: AR, fr: FR };
 export function useStrings() {
   const lang = useAppStore(s => s.settings.language);
   return TABLE[lang];
+}
+
+// Non-hook accessor for use outside React (notifications service, etc).
+// Reads the current language directly from the store.
+export function getStrings(): Dict {
+  return TABLE[useAppStore.getState().settings.language];
 }
 
 export function isRTL(lang: AppLanguage): boolean {

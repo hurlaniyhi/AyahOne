@@ -53,7 +53,18 @@ export const TAJWEED_LEGEND_ORDER: TajweedRule[] = [
 ];
 
 const RULE_CHARS = 'hslnpmoqcfwiaudbg';
-const TAG_RE = new RegExp(`\\[([${RULE_CHARS}])(?::\\d+)?\\[([^\\]]*)\\]`, 'g');
+// The quran-tajweed edition emits two tag shapes:
+//   [X[content]   or [X:NUM[content]   - wraps a span of Arabic letters
+//   [X]           or [X:NUM]           - a bare positional marker (e.g. [s]
+//                                        at a sakta / waqf point) with no
+//                                        wrapped content
+// Both must be consumed so neither leaks into the rendered text. The `i`
+// flag tolerates uppercase variants the API occasionally emits (e.g. `[S]`),
+// which would otherwise render as literal text inside the Arabic.
+const TAG_RE = new RegExp(
+  `\\[([${RULE_CHARS}])(?::\\d+)?(?:\\[([^\\]]*)\\]|\\])`,
+  'gi',
+);
 
 export function parseTajweed(text: string): TajweedSegment[] {
   const segments: TajweedSegment[] = [];
@@ -64,7 +75,11 @@ export function parseTajweed(text: string): TajweedSegment[] {
     if (m.index > lastIdx) {
       segments.push({ text: text.slice(lastIdx, m.index) });
     }
-    segments.push({ text: m[2], rule: m[1] as TajweedRule });
+    // Bare markers (m[2] === undefined) have no inner glyph to render; we
+    // simply drop them so the surrounding Arabic flows uninterrupted.
+    if (m[2] !== undefined && m[2].length > 0) {
+      segments.push({ text: m[2], rule: m[1].toLowerCase() as TajweedRule });
+    }
     lastIdx = m.index + m[0].length;
   }
   if (lastIdx < text.length) {
@@ -76,7 +91,7 @@ export function parseTajweed(text: string): TajweedSegment[] {
 // Strips all tajweed brackets, leaving just the underlying Arabic text. Used
 // when we need a clean string for hasanat counting or search indexing.
 export function stripTajweed(text: string): string {
-  return text.replace(TAG_RE, '$2');
+  return text.replace(TAG_RE, (_, _rule, content) => content ?? '');
 }
 
 export function hasTajweedMarkup(text: string): boolean {

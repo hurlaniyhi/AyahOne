@@ -17,7 +17,8 @@
         {
           "photosPermission": "Allow AyahOne to access your photos so you can set a profile picture."
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "ios": {
       "supportsTablet": true,

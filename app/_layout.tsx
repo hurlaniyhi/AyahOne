@@ -1,5 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -11,6 +12,7 @@ import { hydrateAppStore, useAppStore } from '@/store/appStore';
 import { clearPrecacheFlag, isPrecached, precacheAllSurahs, warmMemoryCache } from '@/data/quranApi';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
+import { attachReminderTriggers, ensureBootPermission, initNotifications, syncReminders } from '@/lib/notifications';
 
 function RootStack() {
   const t = useTheme();
@@ -83,7 +85,22 @@ export default function RootLayout() {
     hydrateAppStore().then(() => {
       setReady(true);
       void bootstrapQuranCache();
+      // Install the notification handler, prompt for OS permission on first
+      // launch (since notificationsEnabled defaults to true), then schedule
+      // the reminders. ensureBootPermission is a no-op on subsequent launches.
+      void initNotifications()
+        .then(() => ensureBootPermission())
+        .then(() => syncReminders());
     });
+    // Re-sync on every foreground: if the user crossed midnight or completed
+    // their goal in another session, the scheduled bodies should be refreshed.
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') void syncReminders();
+    });
+    // Resync whenever the store slices that influence reminder copy change
+    // (verses read today, daily goal, Kahf progress, language, toggle).
+    const unsubStore = attachReminderTriggers();
+    return () => { sub.remove(); unsubStore(); };
   }, []);
 
   const bootReady = ready && fontsLoaded;
