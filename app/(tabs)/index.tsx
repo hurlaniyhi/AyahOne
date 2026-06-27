@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAppStore } from '@/store/appStore';
-import { useTodayStats, useWeekStats, useTotalStats, useDailySeries } from '@/store/selectors';
+import { useTodayStats, useWeekStats, useTotalStats, useDailySeries, useWeekdaySeries } from '@/store/selectors';
 import { useStrings } from '@/i18n/strings';
 import { getSurah } from '@/data/surahs';
 import { Button } from '@/components/Button';
@@ -33,6 +33,11 @@ export default function HomeScreen() {
   const today = useTodayStats();
   const week = useWeekStats();
   const total = useTotalStats();
+  // Calendar-week aligned (Mon→Sun) so the labelled M T W T F S S strip on the
+  // StreakBars card lines up with the values it describes.
+  const weekdayVerses = useWeekdaySeries('verses');
+  // Chronological last-7-days series — only used for the unlabelled sparklines
+  // on the StatRow cards, where Monday-alignment is not meaningful.
   const versesSeries = useDailySeries('verses', 7);
   const hasanatSeries = useDailySeries('hasanat', 7);
   const timeSeries = useDailySeries('timeSec', 7);
@@ -93,7 +98,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Streak — replaces Quranly's pill weekday row */}
-        <StreakBars values={versesSeries} labels={WEEKDAYS} todayIndex={todayDow} goal={dailyGoal} />
+        <StreakBars values={weekdayVerses} labels={WEEKDAYS} todayIndex={todayDow} goal={dailyGoal} />
 
         <PrecacheBanner />
 

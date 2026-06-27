@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -160,7 +160,10 @@ export default function VerseReader() {
 
   // `arabicFontSize` is now a continuous px value driven by the settings slider.
   const arabicSize = settings.arabicFontSize;
-  const arabicLineHeight = Math.round(arabicSize * 2);
+  // Android renders Arabic with tighter metrics than iOS and clips diacritics
+  // when lineHeight is too snug; bump it slightly on Android so fatha/kasra
+  // and sukun glyphs above/below the baseline are never cropped.
+  const arabicLineHeight = Math.round(arabicSize * (Platform.OS === 'android' ? 2.25 : 2));
 
   // The Bismillah opener is shown above ayah 1 for every surah except
   // Al-Fatihah (1, where it IS ayah 1) and At-Tawbah (9, where it is absent).
@@ -326,27 +329,46 @@ export default function VerseReader() {
             {!ayahs && !error && <ActivityIndicator color={t.accent.primary} />}
 
             {showBismillah && (
-              <Text style={{
-                color: t.colors.brass,
-                fontSize: Math.round(arabicSize * 0.85),
-                lineHeight: Math.round(arabicSize * 1.6),
-                textAlign: 'center', writingDirection: 'rtl',
-                fontFamily: arabicFontFor(settings.arabicScript),
-                marginBottom: t.spacing(1),
-              }}>
+              <Text
+                allowFontScaling={false}
+                style={{
+                  color: t.colors.brass,
+                  fontSize: Math.round(arabicSize * 0.85),
+                  lineHeight: Math.round(arabicSize * (Platform.OS === 'android' ? 1.85 : 1.6)),
+                  textAlign: 'center', writingDirection: 'rtl',
+                  fontFamily: arabicFontFor(settings.arabicScript),
+                  marginBottom: t.spacing(1),
+                  paddingHorizontal: t.spacing(1),
+                  ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' } : null),
+                }}>
                 {BISMILLAH}
               </Text>
             )}
 
             {current && (
-              <Text style={{
-                color: t.colors.text, fontSize: arabicSize, lineHeight: arabicLineHeight,
-                textAlign: 'center', writingDirection: 'rtl',
-                fontFamily: arabicFontFor(settings.arabicScript),
-              }}>
+              <Text
+                allowFontScaling={false}
+                style={{
+                  color: t.colors.text, fontSize: arabicSize, lineHeight: arabicLineHeight,
+                  textAlign: 'center', writingDirection: 'rtl',
+                  fontFamily: arabicFontFor(settings.arabicScript),
+                  // Extra horizontal breathing room so cursive joiners on the
+                  // last word of a line aren't clipped by the card edge on
+                  // Android (where text measurement is more aggressive).
+                  paddingHorizontal: t.spacing(Platform.OS === 'android' ? 2 : 1),
+                  ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' } : null),
+                }}>
                 {tajweedSegments
                   ? tajweedSegments.map((seg, i) => (
-                      <Text key={i} style={seg.rule ? { color: TAJWEED_COLORS[seg.rule] } : undefined}>
+                      // Re-declare fontFamily on each nested span: Android's
+                      // text renderer does not always inherit it across nested
+                      // <Text> nodes, which causes neighbouring Arabic letters
+                      // to render in a fallback font and lose their ligatures
+                      // at the segment boundary.
+                      <Text key={i} style={{
+                        fontFamily: arabicFontFor(settings.arabicScript),
+                        ...(seg.rule ? { color: TAJWEED_COLORS[seg.rule] } : null),
+                      }}>
                         {seg.text}
                       </Text>
                     ))

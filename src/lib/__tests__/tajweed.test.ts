@@ -82,6 +82,22 @@ describe('parseTajweed', () => {
     ]);
   });
 
+  // Real Al-Baqarah 2:190 fragment: `[o[ُو۠[s[ا۟]‌ۚ]` — a silent span nested
+  // inside a madd-obligatory span. The legacy non-recursive regex captured
+  // only up to the first `]`, leaving the inner `[s[…` markup visible in the
+  // rendered Arabic. The stack-walker must surface three segments and assign
+  // the silent rule (innermost) to the silent letters.
+  it('handles nested rule tags (Al-Baqara 2:190 case)', () => {
+    const out = parseTajweed('تَعْتَد[o[ُو۠[s[ا۟]\u200c\u06da] إِنَّ');
+    expect(out).toEqual([
+      { text: 'تَعْتَد' },
+      { text: 'ُو۠', rule: 'o' },
+      { text: 'ا۟', rule: 's' },
+      { text: '\u200c\u06da', rule: 'o' },
+      { text: ' إِنَّ' },
+    ]);
+  });
+
   it('covers every declared rule code', () => {
     const allRules = Object.keys(TAJWEED_COLORS) as Array<keyof typeof TAJWEED_COLORS>;
     for (const r of allRules) {
@@ -127,6 +143,13 @@ describe('stripTajweed', () => {
   it('strips uppercase tags the same as lowercase', () => {
     expect(stripTajweed('بِسْمِ [H[ٱ]للَّهِ')).toBe('بِسْمِ ٱللَّهِ');
     expect(stripTajweed('وَلَا تَعۡتَدُوٓاْ[S] إِنَّ')).toBe('وَلَا تَعۡتَدُوٓاْ إِنَّ');
+  });
+
+  // The 2:190 nested fragment must strip cleanly with no orphan `]` left
+  // behind — the legacy regex left a trailing `]` outside the inner match.
+  it('strips nested rule tags without leaking brackets', () => {
+    expect(stripTajweed('تَعْتَد[o[ُو۠[s[ا۟]\u200c\u06da] إِنَّ'))
+      .toBe('تَعْتَدُو۠ا۟\u200c\u06da إِنَّ');
   });
 });
 

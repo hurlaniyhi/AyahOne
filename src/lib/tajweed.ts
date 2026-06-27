@@ -53,45 +53,108 @@ export const TAJWEED_LEGEND_ORDER: TajweedRule[] = [
 ];
 
 const RULE_CHARS = 'hslnpmoqcfwiaudbg';
-// The quran-tajweed edition emits two tag shapes:
-//   [X[content]   or [X:NUM[content]   - wraps a span of Arabic letters
-//   [X]           or [X:NUM]           - a bare positional marker (e.g. [s]
-//                                        at a sakta / waqf point) with no
-//                                        wrapped content
-// Both must be consumed so neither leaks into the rendered text. The `i`
-// flag tolerates uppercase variants the API occasionally emits (e.g. `[S]`),
-// which would otherwise render as literal text inside the Arabic.
+const RULE_CHAR_RE = /[hslnpmoqcfwiaudbg]/i;
+// Detector regex \u2014 only used by hasTajweedMarkup() to quickly tell whether
+// an ayah carries any rule markup at all. The real parser is hand-rolled
+// below because the edition emits NESTED tags (e.g. Al-Baqarah 2:190 contains
+// `[o[\u064f\u0648\u0653[s[\u0627\u0652]\u200c\u06da]` \u2014 a silent rule inside a madd-obligatory rule)
+// which a single non-recursive regex cannot describe.
 const TAG_RE = new RegExp(
-  `\\[([${RULE_CHARS}])(?::\\d+)?(?:\\[([^\\]]*)\\]|\\])`,
+  `\\[([${RULE_CHARS}])(?::\\d+)?(?:\\[|\\])`,
   'gi',
 );
 
+interface OpeningTag {
+  rule: TajweedRule;
+  end: number;             // index of the character AFTER the consumed opener
+  kind: 'wrapped' | 'bare';
+}
+
+// Tries to match a tajweed opener starting at `i`. Returns the parsed tag or
+// `null` if the position is not a recognised opener. Recognises:
+//   [X[      [X:NUM[       \u2014 wrapped rule, content runs until its matching ]
+//   [X]      [X:NUM]       \u2014 bare positional marker (sakta / waqf, no content)
+// X is a single rule letter (case-insensitive). Unknown letters or non-numeric
+// suffixes cause this to bail out so the surrounding text is preserved.
+function matchOpeningTag(text: string, i: number): OpeningTag | null {
+  if (text.charCodeAt(i) !== 0x5b /* [ */) return null;
+  let p = i + 1;
+  const letter = text[p];
+  if (!letter || !RULE_CHAR_RE.test(letter)) return null;
+  const rule = letter.toLowerCase() as TajweedRule;
+  p++;
+  if (text[p] === ':') {
+    p++;
+    const numStart = p;
+    while (p < text.length && text[p] >= '0' && text[p] <= '9') p++;
+    if (p === numStart) return null;
+  }
+  if (text[p] === '[') return { rule, end: p + 1, kind: 'wrapped' };
+  if (text[p] === ']') return { rule, end: p + 1, kind: 'bare' };
+  return null;
+}
+
+// Stack-based parser that honours nested tags. The innermost rule wins when
+// a span is wrapped by more than one (e.g. the `silent` letters inside a
+// `madd_obligatory` span render in the silent colour, which matches every
+// reference mushaf). Plain text outside any tag has `rule` undefined.
 export function parseTajweed(text: string): TajweedSegment[] {
   const segments: TajweedSegment[] = [];
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-  TAG_RE.lastIndex = 0;
-  while ((m = TAG_RE.exec(text)) !== null) {
-    if (m.index > lastIdx) {
-      segments.push({ text: text.slice(lastIdx, m.index) });
+  const stack: TajweedRule[] = [];
+  let buf = '';
+
+  const flush = () => {
+    if (!buf) return;
+    const rule = stack.length ? stack[stack.length - 1] : undefined;
+    segments.push(rule ? { text: buf, rule } : { text: buf });
+    buf = '';
+  };
+
+  let i = 0;
+  while (i < text.length) {
+    const tag = matchOpeningTag(text, i);
+    if (tag) {
+      flush();
+      if (tag.kind === 'wrapped') stack.push(tag.rule);
+      i = tag.end;
+      continue;
     }
-    // Bare markers (m[2] === undefined) have no inner glyph to render; we
-    // simply drop them so the surrounding Arabic flows uninterrupted.
-    if (m[2] !== undefined && m[2].length > 0) {
-      segments.push({ text: m[2], rule: m[1].toLowerCase() as TajweedRule });
+    if (text[i] === ']' && stack.length > 0) {
+      flush();
+      stack.pop();
+      i++;
+      continue;
     }
-    lastIdx = m.index + m[0].length;
+    buf += text[i];
+    i++;
   }
-  if (lastIdx < text.length) {
-    segments.push({ text: text.slice(lastIdx) });
-  }
+  flush();
   return segments;
 }
 
 // Strips all tajweed brackets, leaving just the underlying Arabic text. Used
-// when we need a clean string for hasanat counting or search indexing.
+// when we need a clean string for hasanat counting or search indexing. Uses
+// the same stack-walker as parseTajweed so nested tags are fully consumed.
 export function stripTajweed(text: string): string {
-  return text.replace(TAG_RE, (_, _rule, content) => content ?? '');
+  let out = '';
+  let depth = 0;
+  let i = 0;
+  while (i < text.length) {
+    const tag = matchOpeningTag(text, i);
+    if (tag) {
+      if (tag.kind === 'wrapped') depth++;
+      i = tag.end;
+      continue;
+    }
+    if (text[i] === ']' && depth > 0) {
+      depth--;
+      i++;
+      continue;
+    }
+    out += text[i];
+    i++;
+  }
+  return out;
 }
 
 export function hasTajweedMarkup(text: string): boolean {

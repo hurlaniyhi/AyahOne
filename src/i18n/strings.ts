@@ -131,6 +131,12 @@ const EN: Dict = {
   notifTimePickerDone: 'Done',
   notifTimePickerCancel: 'Cancel',
   dailyGoalDesc: 'How many verses to aim for each day.',
+  kahfBadge: 'Friday Light',
+  kahfCompleted: 'Surah Al-Kahf Completed',
+  kahfCompletedSubtitle: 'MashaAllah — may its light reach you until next Friday.',
+  kahfCompletedQuote: '"Whoever reads Surah Al-Kahf on Friday, a light will shine for him between the two Fridays." — Sunan al-Bayhaqi',
+  kahfAyahsLabel: 'ayahs',
+  kahfCompleteBadge: '100%',
 };
 
 const AR: Dict = {
@@ -262,6 +268,12 @@ const AR: Dict = {
   notifTimePickerDone: 'تم',
   notifTimePickerCancel: 'إلغاء',
   dailyGoalDesc: 'كم آية تريد قراءتها كل يوم.',
+  kahfBadge: 'نور الجمعة',
+  kahfCompleted: 'اكتملت سورة الكهف',
+  kahfCompletedSubtitle: 'ما شاء الله — تقبّل الله، نَوَّر الله طريقك إلى الجمعة القادمة.',
+  kahfCompletedQuote: '«من قرأ سورة الكهف يوم الجمعة أضاء له من النور ما بين الجمعتين.» — السنن للبيهقي',
+  kahfAyahsLabel: 'آية',
+  kahfCompleteBadge: '١٠٠٪',
 };
 
 const FR: Dict = {
@@ -393,6 +405,12 @@ const FR: Dict = {
   notifTimePickerDone: 'Terminer',
   notifTimePickerCancel: 'Annuler',
   dailyGoalDesc: 'Combien de versets viser chaque jour.',
+  kahfBadge: 'Lumière du vendredi',
+  kahfCompleted: 'Sourate Al-Kahf achevée',
+  kahfCompletedSubtitle: 'Mâcha Allah — que sa lumière vous accompagne jusqu\u2019au prochain vendredi.',
+  kahfCompletedQuote: '« Quiconque récite Sourate Al-Kahf le vendredi, une lumière brillera pour lui entre les deux vendredis. » — Sunan al-Bayhaqi',
+  kahfAyahsLabel: 'versets',
+  kahfCompleteBadge: '100\u00a0%',
 };
 
 const TABLE: Record<AppLanguage, Dict> = { en: EN, ar: AR, fr: FR };

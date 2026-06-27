@@ -49,11 +49,17 @@ export async function initNotifications(): Promise<void> {
     handlerInstalled = true;
   }
   if (Platform.OS === 'android') {
+    // HIGH importance + an explicit `sound` are required for the OS to surface
+    // the notification as a heads-up banner with audio. Omitting `sound` keeps
+    // the channel silent on many OEM skins even when importance is HIGH.
     await Notifications.setNotificationChannelAsync('default', {
       name: 'Reminders',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#0F6B5C',
+      sound: 'default',
+      enableVibrate: true,
+      showBadge: false,
     });
   }
 }
@@ -145,8 +151,12 @@ export async function syncReminders(): Promise<void> {
       title: t.notifGoalTitle,
       body: goalBody,
       data: { url: '/(tabs)/reading' },
+      sound: 'default',
     },
-    trigger: { type: SchedulableTriggerInputTypes.DATE, date: goalDate },
+    // `channelId` is required on Android for the OS to route the notification
+    // through the HIGH-importance channel we register in initNotifications().
+    // Without it Android 8+ silently drops the alert (no banner, no sound).
+    trigger: { type: SchedulableTriggerInputTypes.DATE, date: goalDate, channelId: 'default' },
   });
 
   // Friday Al-Kahf: skip today only if Kahf is done for today's Friday.
@@ -166,8 +176,9 @@ export async function syncReminders(): Promise<void> {
       title: t.notifKahfTitle,
       body: kahfBody,
       data: { url: '/read/18' },
+      sound: 'default',
     },
-    trigger: { type: SchedulableTriggerInputTypes.DATE, date: kahfDate },
+    trigger: { type: SchedulableTriggerInputTypes.DATE, date: kahfDate, channelId: 'default' },
   });
 }
 

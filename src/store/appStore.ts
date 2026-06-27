@@ -104,6 +104,14 @@ export interface AppState {
   // the first time today. The root layout reads it to render the celebration
   // modal. Not persisted.
   celebrationVisible: boolean;
+  // todayKey() of the last Friday the user saw the Surah Al-Kahf completion
+  // celebration. Persisted so finishing Kahf on the same Friday across a
+  // cold launch does not re-fire the modal.
+  lastKahfCelebrationDate: string;
+  // Ephemeral flag set the moment the user reaches ayah 110 of Surah Al-Kahf
+  // on a Friday. The root layout reads it to render the Kahf celebration
+  // modal. Not persisted.
+  kahfCelebrationVisible: boolean;
   // Ask-AyahOne chat history. Capped to ASK_HISTORY_CAP on every append
   // so AsyncStorage stays bounded. Pending messages are dropped on hydrate.
   askHistory: AskMsg[];
@@ -126,6 +134,7 @@ export interface AppState {
   setPrecache: (p: Partial<PrecacheState>) => void;
   setLastSearchQuery: (q: string) => void;
   dismissGoalCelebration: () => void;
+  dismissKahfCelebration: () => void;
   // Ask-AyahOne actions
   appendAskMessages: (msgs: AskMsg[]) => void;
   updateAskMessage: (id: string, patch: Partial<AskMsg>) => void;
@@ -135,6 +144,10 @@ export interface AppState {
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
+
+// Surah Al-Kahf has 110 ayahs. Mirrors the constant used by notifications and
+// the home banner; kept local here so the celebration trigger is self-contained.
+const KAHF_TOTAL_AYAH = 110;
 
 const emptyBucket = (): BucketStats => ({ hasanat: 0, verses: 0, timeSec: 0, pages: 0 });
 
@@ -168,6 +181,8 @@ const DEFAULT_STATE = {
   lastSearchQuery: '',
   lastGoalCelebrationDate: '',
   celebrationVisible: false,
+  lastKahfCelebrationDate: '',
+  kahfCelebrationVisible: false,
   askHistory: [] as AskMsg[],
   askSending: false,
   askLastSendAt: 0,
@@ -193,6 +208,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       bookmarks: state.bookmarks,
       dailyGoalVerses: state.dailyGoalVerses,
       lastGoalCelebrationDate: state.lastGoalCelebrationDate,
+      lastKahfCelebrationDate: state.lastKahfCelebrationDate,
       // Strip pending model bubbles before persisting — they represent an
       // in-flight request that can no longer be resolved across reloads.
       askHistory: state.askHistory.filter(m => !m.pending),
@@ -206,7 +222,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
 type Actions = Pick<AppState,
   'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'setLastRead' | 'setDailyGoal' |
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
-  'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' |
+  'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -279,18 +295,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       // over, so the banner never shows stale lifetime progress.
       const isFridayKahf = surah === 18 && new Date().getDay() === 5;
       let kahfFriday = s.kahfFriday;
+      const today = todayKey();
+      const prevKahfAyahToday = kahfFriday && kahfFriday.date === today ? kahfFriday.ayah : 0;
       if (isFridayKahf) {
-        const today = todayKey();
         if (!kahfFriday || kahfFriday.date !== today) {
           kahfFriday = { date: today, ayah };
         } else if (ayah > kahfFriday.ayah) {
           kahfFriday = { date: today, ayah };
         }
       }
-      if (!grew && kahfFriday === s.kahfFriday) return s;
+      // Fire the Kahf celebration on the exact Friday the reader first reaches
+      // ayah 110. Edge guard: prev<110 && new>=110. Date guard prevents the
+      // modal re-firing across hot reloads or app re-opens the same Friday.
+      const crossedKahf =
+        isFridayKahf &&
+        prevKahfAyahToday < KAHF_TOTAL_AYAH &&
+        (kahfFriday?.ayah ?? 0) >= KAHF_TOTAL_AYAH;
+      const alreadyCelebratedKahfToday = s.lastKahfCelebrationDate === today;
+      const fireKahf = crossedKahf && !alreadyCelebratedKahfToday;
+      if (!grew && kahfFriday === s.kahfFriday && !fireKahf) return s;
       return {
         surahProgress: grew ? { ...s.surahProgress, [surah]: ayah } : s.surahProgress,
         kahfFriday,
+        ...(fireKahf
+          ? { kahfCelebrationVisible: true, lastKahfCelebrationDate: today }
+          : null),
       };
     });
     void persist(get());
@@ -312,6 +341,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPrecache: (p) => set(s => ({ precache: { ...s.precache, ...p } })),
   setLastSearchQuery: (q) => set({ lastSearchQuery: q }),
   dismissGoalCelebration: () => set({ celebrationVisible: false }),
+  dismissKahfCelebration: () => set({ kahfCelebrationVisible: false }),
   appendAskMessages: (msgs) => {
     set(s => {
       const next = [...s.askHistory, ...msgs];
@@ -368,6 +398,7 @@ export async function hydrateAppStore(): Promise<void> {
         bookmarks: data.bookmarks ?? [],
         dailyGoalVerses: data.dailyGoalVerses ?? DEFAULT_STATE.dailyGoalVerses,
         lastGoalCelebrationDate: data.lastGoalCelebrationDate ?? '',
+        lastKahfCelebrationDate: data.lastKahfCelebrationDate ?? '',
         // Strip pending messages on hydrate — they can never resolve now.
         askHistory: Array.isArray(data.askHistory) ? data.askHistory.filter((m: AskMsg) => !m.pending) : [],
       });
