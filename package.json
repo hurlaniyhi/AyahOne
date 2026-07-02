@@ -57,6 +57,7 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "testEnvironment": "<rootDir>/jest.environment.js",
     "setupFiles": [
       "<rootDir>/jest.setup.js"
     ],

@@ -77,6 +77,9 @@ export interface AppState {
   settings: Settings;
   stats: Stats;
   profile: { name: string; photoUri: string | null };
+  // Whether the first-run walkthrough has been completed. Persisted so the
+  // onboarding is shown exactly once, on the very first launch.
+  onboardingComplete: boolean;
   lastRead: ReadingLocation | null;
   // Furthest ayah reached per surah, keyed by surah number (1-114). Lifetime
   // value; never resets. Useful for "ever-read" affordances but NOT for the
@@ -125,6 +128,7 @@ export interface AppState {
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
   setProfilePhoto: (uri: string | null) => void;
+  completeOnboarding: () => void;
   setLastRead: (loc: ReadingLocation) => void;
   setDailyGoal: (n: number) => void;
   recordVerseRead: (hasanat: number, timeSec: number, pagesDelta: number) => void;
@@ -171,6 +175,7 @@ const DEFAULT_STATE = {
   settings: DEFAULT_SETTINGS,
   stats: { daily: {}, weekly: {}, monthly: {}, yearly: {}, total: emptyBucket() } as Stats,
   profile: { name: '', photoUri: null as string | null },
+  onboardingComplete: false,
   lastRead: null as ReadingLocation | null,
   surahProgress: {} as Record<number, number>,
   kahfFriday: null as { date: string; ayah: number } | null,
@@ -201,6 +206,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       settings: state.settings,
       stats: state.stats,
       profile: state.profile,
+      onboardingComplete: state.onboardingComplete,
       lastRead: state.lastRead,
       surahProgress: state.surahProgress,
       kahfFriday: state.kahfFriday,
@@ -220,7 +226,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
 }
 
 type Actions = Pick<AppState,
-  'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'setLastRead' | 'setDailyGoal' |
+  'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'completeOnboarding' | 'setLastRead' | 'setDailyGoal' |
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
   'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt'>;
@@ -238,6 +244,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setProfilePhoto: uri => {
     set(s => ({ profile: { ...s.profile, photoUri: uri } }));
+    void persist(get());
+  },
+  completeOnboarding: () => {
+    set({ onboardingComplete: true });
     void persist(get());
   },
   setLastRead: loc => {
@@ -388,6 +398,7 @@ export async function hydrateAppStore(): Promise<void> {
         settings: { ...DEFAULT_SETTINGS, ...incomingSettings },
         stats: data.stats ?? DEFAULT_STATE.stats,
         profile: { ...DEFAULT_STATE.profile, ...(data.profile ?? {}) },
+        onboardingComplete: data.onboardingComplete === true,
         lastRead: data.lastRead ?? null,
         surahProgress: data.surahProgress ?? {},
         kahfFriday: data.kahfFriday && typeof data.kahfFriday === 'object'

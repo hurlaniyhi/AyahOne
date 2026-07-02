@@ -161,3 +161,134 @@ export function hasTajweedMarkup(text: string): boolean {
   TAG_RE.lastIndex = 0;
   return TAG_RE.test(text);
 }
+
+// ---------------------------------------------------------------------------
+// Android joining-preservation pass
+// ---------------------------------------------------------------------------
+// React Native renders each TajweedSegment as a nested <Text>. On Android the
+// resulting Spannable is shaped by Paint/HarfBuzz, but the way ReactTextView
+// chains its inner spans the cursive joining is broken at every nested-<Text>
+// boundary that falls between two letters which should connect (e.g. fa-mim
+// inside فَمَنِ when a rule wraps only the trailing noon). Splitting after a
+// non-left-joining letter (ا د ر و ٱ …), after a whitespace, or before a
+// hamza-on-the-line is visually safe because Arabic naturally breaks the
+// cursive run at those points; everywhere else we coalesce the segments so
+// the join survives. The later rule wins so the more specific colour is the
+// one preserved on the merged run (rules accumulate forward through the
+// recitation in the alquran.cloud edition).
+
+// Right-joining-only consonants — they do NOT connect to the letter that
+// follows them in the cursive run.
+const NON_LEFT_JOINING = new Set<string>([
+  '\u0621', // ء  hamza on the line (joins neither side)
+  '\u0622', // آ  alif madda
+  '\u0623', // أ  alif hamza above
+  '\u0624', // ؤ  waw hamza
+  '\u0625', // إ  alif hamza below
+  '\u0627', // ا  alif
+  '\u0629', // ة  taa marbuta
+  '\u062F', // د  dal
+  '\u0630', // ذ  dhal
+  '\u0631', // ر  ra
+  '\u0632', // ز  zay
+  '\u0648', // و  waw
+  '\u0671', // ٱ  alif wasla
+]);
+
+function isArabicLetter(code: number): boolean {
+  return (code >= 0x0621 && code <= 0x064A) || (code >= 0x066E && code <= 0x06D3);
+}
+
+// Combining marks that sit on a base letter (harakat, dagger alif, small
+// waqf signs) and do not themselves participate in cursive joining.
+function isArabicMark(code: number): boolean {
+  return (
+    (code >= 0x064B && code <= 0x065F) ||
+    code === 0x0670 ||
+    (code >= 0x06D6 && code <= 0x06ED)
+  );
+}
+
+// True iff the LAST consonant of `text` would join cursively to whatever
+// letter follows it. Combining marks and tatweel are skipped so the decision
+// is made on the actual base letter.
+function endsJoinsLeft(text: string): boolean {
+  for (let i = text.length - 1; i >= 0; i--) {
+    const code = text.charCodeAt(i);
+    if (code === 0x0640) return true;           // tatweel always joins
+    if (isArabicMark(code)) continue;
+    if (isArabicLetter(code)) return !NON_LEFT_JOINING.has(text[i]);
+    return false;                                // whitespace / punctuation
+  }
+  return false;
+}
+
+// True iff the FIRST consonant of `text` would join cursively to the letter
+// preceding it.
+function startsJoinsRight(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code === 0x0640) return true;
+    if (isArabicMark(code)) continue;
+    if (isArabicLetter(code)) return code !== 0x0621;
+    return false;
+  }
+  return false;
+}
+
+// Merges adjacent segments where the boundary would cut a cursive join. When
+// the merged segments disagree on rule (including the rule-vs-no-rule case)
+// the result is left UNCOLOURED — losing one rule highlight is preferable to
+// extending a rule's colour onto letters that were originally plain, which
+// is what users perceive as "more colour than the mushaf shows". Same-rule
+// merges keep the rule so contiguous coloured runs stay intact.
+export function coalesceForJoining(segments: TajweedSegment[]): TajweedSegment[] {
+  const out: TajweedSegment[] = [];
+  for (const seg of segments) {
+    if (out.length === 0) { out.push({ ...seg }); continue; }
+    const prev = out[out.length - 1];
+    const wouldBreakJoin = endsJoinsLeft(prev.text) && startsJoinsRight(seg.text);
+    if (wouldBreakJoin) {
+      prev.text += seg.text;
+      if (prev.rule !== seg.rule) prev.rule = undefined;
+    } else {
+      out.push({ ...seg });
+    }
+  }
+  return out;
+}
+
+// Migrates any leading combining marks of segment N onto the tail of segment
+// N-1. The alquran.cloud tajweed edition wraps rule spans around the BASE
+// LETTER (`[f[…ف]` ) and leaves the trailing harakah in the following plain
+// segment, which splits the fa+fatha grapheme cluster across two <Text>
+// elements. HarfBuzz on Android sees that as a broken cluster and renders the
+// fatha as a stray mark on a baseline stub. Reuniting the cluster inside one
+// segment is a prerequisite for the joining-coalesce pass below — without it
+// the boundary check still treats the marks-only micro-segment as "safe" and
+// leaves the broken cluster in place.
+export function rebalanceCombiningMarks(segments: TajweedSegment[]): TajweedSegment[] {
+  const out: TajweedSegment[] = segments.map(s => ({ ...s }));
+  for (let i = 1; i < out.length; i++) {
+    const cur = out[i];
+    let cut = 0;
+    while (cut < cur.text.length && isArabicMark(cur.text.charCodeAt(cut))) cut++;
+    if (cut === 0) continue;
+    out[i - 1].text += cur.text.slice(0, cut);
+    cur.text = cur.text.slice(cut);
+  }
+  return out.filter(s => s.text.length > 0);
+}
+
+// Public entry point used by the reader. Two passes back-to-back:
+//   1) rebalanceCombiningMarks heals fa+fatha / saad+kasra grapheme clusters
+//      that the source data splits across a rule boundary.
+//   2) coalesceForJoining then merges any remaining boundary that would still
+//      cut a cursive join (fa→mim across a rule edge, mim→noon across the
+//      idgham-then-ikhafa edge in "ةٌ مِّن صِيَامٍ", etc.). The rule is dropped
+//      on the merged run because RN cannot colour a sub-range of a single
+//      <Text> on Android without re-introducing the wrapper that broke
+//      shaping in the first place.
+export function parseTajweedForRender(text: string): TajweedSegment[] {
+  return coalesceForJoining(rebalanceCombiningMarks(parseTajweed(text)));
+}

@@ -12,7 +12,6 @@ import { Button } from '@/components/Button';
 import { StatRow } from '@/components/StatRow';
 import { StreakBars } from '@/components/StreakBars';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
-import { PrecacheBanner } from '@/components/PrecacheBanner';
 import { GoalEditSheet } from '@/components/GoalEditSheet';
 import { formatDuration, formatNumber, todayKey } from '@/lib/format';
 
@@ -99,8 +98,6 @@ export default function HomeScreen() {
 
         {/* Streak — replaces Quranly's pill weekday row */}
         <StreakBars values={weekdayVerses} labels={WEEKDAYS} todayIndex={todayDow} goal={dailyGoal} />
-
-        <PrecacheBanner />
 
         {new Date().getDay() === 5 && (() => {
           const KAHF_TOTAL = 110;

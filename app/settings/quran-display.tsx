@@ -1,18 +1,16 @@
-import React, { useRef, useState } from 'react';
-import { ScrollView, View, Text, Pressable, PanResponder, type GestureResponderEvent } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import React from 'react';
+import { Platform, ScrollView, View, Text, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/theme/ThemeProvider';
 import {
   useAppStore,
   type ArabicScript,
-  ARABIC_FONT_MIN,
-  ARABIC_FONT_MAX,
 } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { arabicFontFor } from '@/lib/quranText';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
+import { FontSizeSlider } from '@/components/FontSizeSlider';
 import { SettingsSection } from '@/components/SettingsRow';
 import {
   TAJWEED_COLORS,
@@ -43,96 +41,6 @@ const TAJWEED_PREVIEW_SEGMENTS: { text: string; rule?: keyof typeof TAJWEED_COLO
   { text: 'مِ' },
 ];
 
-// Continuous Arabic font-size slider. The thumb tracks the finger 1:1 across
-// the full ARABIC_FONT_MIN..ARABIC_FONT_MAX range — dragging right grows the
-// font, dragging left shrinks it. A light haptic fires on each integer px
-// crossing so the user gets tactile feedback without snap-to-stop semantics.
-function FontSizeSlider({
-  value, onChange,
-}: { value: number; onChange: (v: number) => void }) {
-  const t = useTheme();
-  const [trackW, setTrackW] = useState(0);
-  // Refs so the PanResponder callbacks always read the latest committed value
-  // and measured track width without re-creating the responder each render.
-  const valueRef = useRef(value);
-  valueRef.current = value;
-  const trackWRef = useRef(trackW);
-  trackWRef.current = trackW;
-
-  const sizeFromX = (x: number) => {
-    const w = trackWRef.current;
-    if (w <= 0) return valueRef.current;
-    const ratio = Math.max(0, Math.min(1, x / w));
-    return Math.round(ARABIC_FONT_MIN + ratio * (ARABIC_FONT_MAX - ARABIC_FONT_MIN));
-  };
-  const commit = (px: number) => {
-    if (px === valueRef.current) return;
-    valueRef.current = px;
-    void Haptics.selectionAsync();
-    onChange(px);
-  };
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e: GestureResponderEvent) => commit(sizeFromX(e.nativeEvent.locationX)),
-      onPanResponderMove: (e: GestureResponderEvent) => commit(sizeFromX(e.nativeEvent.locationX)),
-    }),
-  ).current;
-
-  const fillPct = (value - ARABIC_FONT_MIN) / (ARABIC_FONT_MAX - ARABIC_FONT_MIN);
-  const thumbSize = 26;
-  return (
-    <View style={{ gap: t.spacing(2) }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
-        <Text style={{ color: t.colors.textMuted, fontSize: 14, fontWeight: '700' }}>A</Text>
-        <View
-          onLayout={e => setTrackW(e.nativeEvent.layout.width)}
-          style={{ flex: 1, height: 36, justifyContent: 'center' }}
-          {...pan.panHandlers}
-        >
-          {/* Track */}
-          <View style={{
-            position: 'absolute', left: 0, right: 0, height: 4, borderRadius: 2,
-            backgroundColor: t.colors.border,
-          }} />
-          {/* Accent-filled portion up to the thumb */}
-          <View style={{
-            position: 'absolute', left: 0, height: 4, borderRadius: 2,
-            width: `${fillPct * 100}%`,
-            backgroundColor: t.accent.primary,
-          }} />
-          {/* Draggable thumb — positioned by interpolating across the measured
-              track width so the gesture and the visual stay in lockstep. */}
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              top: (36 - thumbSize) / 2,
-              left: trackW > 0 ? trackW * fillPct - thumbSize / 2 : -thumbSize,
-              width: thumbSize, height: thumbSize, borderRadius: thumbSize / 2,
-              backgroundColor: t.accent.primary,
-              borderWidth: 3, borderColor: t.colors.background,
-              shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 5,
-              shadowOffset: { width: 0, height: 2 }, elevation: 4,
-            }}
-          />
-        </View>
-        <Text style={{ color: t.colors.textMuted, fontSize: 26, fontWeight: '700' }}>A</Text>
-      </View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Text style={{ color: t.colors.textMuted, fontSize: 11, fontWeight: '600' }}>
-          {ARABIC_FONT_MIN}px
-        </Text>
-        <Text style={{ color: t.colors.textMuted, fontSize: 11, fontWeight: '600' }}>
-          {ARABIC_FONT_MAX}px
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 export default function QuranDisplayScreen() {
   const t = useTheme();
   const s = useStrings();
@@ -151,37 +59,57 @@ export default function QuranDisplayScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['bottom']}>
       <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
         {/* Live preview — surfaceElevated card with brass arabesque corners
-            so the Bismillah feels like a mushaf page rather than a swatch. */}
+            so the Bismillah feels like a mushaf page rather than a swatch.
+            The arabesque decorations and the Arabic text live in separate
+            sub-layers: only the decoration layer is clipped to the card's
+            rounded shape, so the text layer above is free to render full
+            cursive overhangs — Android otherwise crops side-bearings of
+            terminal glyphs against the card edge. */}
         <View style={{
-          padding: t.spacing(5), borderRadius: t.radius.lg,
+          borderRadius: t.radius.lg,
           backgroundColor: t.colors.surfaceElevated,
           borderWidth: 0.75, borderColor: t.colors.hairline,
-          alignItems: 'center', overflow: 'hidden',
           shadowColor: '#000',
           shadowOpacity: t.mode === 'dark' ? 0.35 : 0.06,
           shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
           elevation: 3,
         }}>
-          <View pointerEvents="none" style={{ position: 'absolute', top: -16, left: -16, opacity: 0.18 }}>
-            <ArabesqueMark size={72} color={t.colors.brass} />
-          </View>
-          <View pointerEvents="none" style={{ position: 'absolute', bottom: -16, right: -16, opacity: 0.18 }}>
-            <ArabesqueMark size={72} color={t.colors.brass} />
-          </View>
-          <Text style={{
-            color: t.colors.brass, fontSize: 11, fontWeight: '800',
-            letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: t.spacing(2),
+          <View pointerEvents="none" style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            borderRadius: t.radius.lg,
+            overflow: 'hidden',
           }}>
-            {scriptOptions.find(o => o.id === settings.arabicScript)?.label}
-          </Text>
-          <Text style={{
-            color: t.colors.text, fontSize: previewSize,
-            lineHeight: Math.round(previewSize * 1.8),
-            textAlign: 'center', writingDirection: 'rtl',
-            fontFamily: arabicFontFor(settings.arabicScript),
-          }}>
-            {BISMILLAH[settings.arabicScript]}
-          </Text>
+            <View style={{ position: 'absolute', top: -16, left: -16, opacity: 0.18 }}>
+              <ArabesqueMark size={72} color={t.colors.brass} />
+            </View>
+            <View style={{ position: 'absolute', bottom: -16, right: -16, opacity: 0.18 }}>
+              <ArabesqueMark size={72} color={t.colors.brass} />
+            </View>
+          </View>
+
+          <View style={{ padding: t.spacing(5), alignItems: 'center' }}>
+            <Text style={{
+              color: t.colors.brass, fontSize: 11, fontWeight: '800',
+              letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: t.spacing(2),
+            }}>
+              {scriptOptions.find(o => o.id === settings.arabicScript)?.label}
+            </Text>
+            <Text
+              allowFontScaling={false}
+              textBreakStrategy="simple"
+              style={{
+                color: t.colors.text, fontSize: previewSize,
+                // Android renders Arabic with tighter line metrics than iOS;
+                // bump the leading slightly so diacritics aren't cropped by
+                // the line box.
+                lineHeight: Math.round(previewSize * (Platform.OS === 'android' ? 2 : 1.8)),
+                textAlign: 'center', writingDirection: 'rtl',
+                fontFamily: arabicFontFor(settings.arabicScript),
+                alignSelf: 'stretch',
+              }}>
+              {BISMILLAH[settings.arabicScript]}
+            </Text>
+          </View>
         </View>
 
         {/* Font size */}
@@ -248,18 +176,24 @@ export default function QuranDisplayScreen() {
                 </View>
                 <Text
                   numberOfLines={1}
+                  allowFontScaling={false}
+                  textBreakStrategy="simple"
                   style={{
                     color: t.colors.text, fontSize: 22,
+                    lineHeight: Platform.OS === 'android' ? 44 : undefined,
                     textAlign: 'right', writingDirection: 'rtl',
                     fontFamily: arabicFontFor(opt.id),
+                    // Trailing/leading gutter so the first/last cursive glyph
+                    // isn't clipped by the script card border on Android.
+                    paddingHorizontal: t.spacing(Platform.OS === 'android' ? 2 : 0),
                   }}
                 >
                   {opt.id === 'tajweed'
-                    ? TAJWEED_PREVIEW_SEGMENTS.map((seg, i) => (
-                        <Text key={i} style={seg.rule ? { color: TAJWEED_COLORS[seg.rule] } : undefined}>
-                          {seg.text}
-                        </Text>
-                      ))
+                    ? TAJWEED_PREVIEW_SEGMENTS.map((seg, i) =>
+                        seg.rule
+                          ? <Text key={i} style={{ color: TAJWEED_COLORS[seg.rule] }}>{seg.text}</Text>
+                          : seg.text,
+                      )
                     : BISMILLAH[opt.id]}
                 </Text>
               </Pressable>

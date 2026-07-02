@@ -11,6 +11,7 @@ import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { hydrateAppStore, useAppStore } from '@/store/appStore';
 import { bootstrapQuranCache } from '@/lib/precacheBootstrap';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
+import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { KahfCelebrationModal } from '@/components/KahfCelebrationModal';
 import { attachReminderTriggers, ensureBootPermission, initNotifications, syncReminders } from '@/lib/notifications';
@@ -59,11 +60,13 @@ export default function RootLayout() {
     hydrateAppStore().then(() => {
       setReady(true);
       void bootstrapQuranCache();
-      // Install the notification handler, prompt for OS permission on first
-      // launch (since notificationsEnabled defaults to true), then schedule
-      // the reminders. ensureBootPermission is a no-op on subsequent launches.
+      // Install the notification handler, then schedule reminders. The OS
+      // permission prompt is deferred to the first-run walkthrough's reminders
+      // step, so we only auto-prompt here once onboarding has been completed.
       void initNotifications()
-        .then(() => ensureBootPermission())
+        .then(() => {
+          if (useAppStore.getState().onboardingComplete) return ensureBootPermission();
+        })
         .then(() => syncReminders());
     });
     // Re-sync on every foreground: if the user crossed midnight or completed
@@ -86,13 +89,19 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          {bootReady && splashDone ? (
-            <RootStack />
-          ) : (
-            <AnimatedSplash onAnimationDone={() => setSplashDone(true)} />
-          )}
+          <AppGate bootReady={bootReady && splashDone} onSplashDone={() => setSplashDone(true)} />
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+// Decides which of the three top-level surfaces to show once boot has settled:
+// the animated splash, the first-run walkthrough, or the main app. Kept as a
+// child of ThemeProvider so the onboarding can read the live theme.
+function AppGate({ bootReady, onSplashDone }: { bootReady: boolean; onSplashDone: () => void }) {
+  const onboardingComplete = useAppStore(s => s.onboardingComplete);
+  if (!bootReady) return <AnimatedSplash onAnimationDone={onSplashDone} />;
+  if (!onboardingComplete) return <OnboardingFlow />;
+  return <RootStack />;
 }
