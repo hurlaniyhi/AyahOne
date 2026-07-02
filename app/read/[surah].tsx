@@ -12,11 +12,12 @@ import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
 import { arabicFontFor } from '@/lib/quranText';
-import { parseTajweed, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
+import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
 import { IconButton } from '@/components/Button';
 import { AyahMarker } from '@/components/AyahMarker';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { GlassDock } from '@/components/GlassDock';
+import { DailyGoalBadge } from '@/components/DailyGoalBadge';
 import { useTodayStats } from '@/store/selectors';
 
 // Standard Bismillah, shown as an opener for ayah 1 of every surah except
@@ -146,7 +147,7 @@ export default function VerseReader() {
   );
   const tajweedSegments = useMemo(
     () => current && settings.arabicScript === 'tajweed'
-      ? parseTajweed(current.arabic)
+      ? parseTajweedForRender(current.arabic)
       : null,
     [current, settings.arabicScript],
   );
@@ -160,10 +161,18 @@ export default function VerseReader() {
 
   // `arabicFontSize` is now a continuous px value driven by the settings slider.
   const arabicSize = settings.arabicFontSize;
-  // Android renders Arabic with tighter metrics than iOS and clips diacritics
-  // when lineHeight is too snug; bump it slightly on Android so fatha/kasra
-  // and sukun glyphs above/below the baseline are never cropped.
-  const arabicLineHeight = Math.round(arabicSize * (Platform.OS === 'android' ? 2.25 : 2));
+  // Android renders Arabic with tighter line metrics than iOS and clips
+  // letter descenders (notably the bowls of ب ت ث ن ي) when lineHeight is
+  // too snug; the 2.5× multiplier leaves enough room for both descenders
+  // and diacritics that sit above the baseline.
+  const arabicLineHeight = Math.round(arabicSize * (Platform.OS === 'android' ? 2.5 : 2));
+  // Small inner gutter on Android keeps the rightmost cursive overhang of
+  // initial-form letters (notably ب in بِأَيْدِيكُمْ) clear of the card's inner
+  // edge. The card itself is structured below so that borderRadius and
+  // elevation live on a separate background layer — that way the content
+  // View has no rounded outline, and Android's clipToOutline cannot crop
+  // text glyphs against the card's corner path.
+  const arabicGutter = t.spacing(Platform.OS === 'android' ? 2 : 0);
 
   // The Bismillah opener is shown above ayah 1 for every surah except
   // Al-Fatihah (1, where it IS ayah 1) and At-Tawbah (9, where it is absent).
@@ -279,30 +288,50 @@ export default function VerseReader() {
           </View>
         </View>
 
+        {/* Daily goal completion badge — appears once today's verse goal is met,
+            and shows how many verses have been read beyond the target. */}
+        <DailyGoalBadge />
+
         {/* Verse card — parchment with arabesque watermark */}
         <ScrollView
           contentContainerStyle={{ gap: t.spacing(3), paddingBottom: t.spacing(28) }}
           showsVerticalScrollIndicator={false}
         >
-          <View style={{
-            backgroundColor: t.colors.surfaceElevated,
-            borderRadius: t.radius.xl,
-            borderWidth: 0.75, borderColor: t.colors.hairline,
-            padding: t.spacing(5),
-            gap: t.spacing(3),
-            overflow: 'hidden',
-            shadowColor: '#000',
-            shadowOpacity: t.mode === 'dark' ? 0.35 : 0.05,
-            shadowRadius: 16, shadowOffset: { width: 0, height: 8 },
-            elevation: 3,
-          }}>
-            <View pointerEvents="none" style={{ position: 'absolute', right: -36, top: -36, opacity: t.mode === 'dark' ? 0.08 : 0.06 }}>
-              <ArabesqueMark size={180} color={t.colors.brass} />
-            </View>
-            <View pointerEvents="none" style={{ position: 'absolute', left: -36, bottom: -36, opacity: t.mode === 'dark' ? 0.06 : 0.04 }}>
-              <ArabesqueMark size={140} color={t.colors.brass} />
+          <View>
+            {/* Background layer: carries the card's fill, border, rounded
+                corners and elevation/shadow. Because this lives in an
+                absolutely-positioned sibling rather than wrapping the
+                content, Android's elevation-driven clipToOutline applies
+                only to this empty layer — the text below renders without
+                any rounded clipping path against its glyphs. */}
+            <View pointerEvents="none" style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              backgroundColor: t.colors.surfaceElevated,
+              borderRadius: t.radius.xl,
+              borderWidth: 0.75, borderColor: t.colors.hairline,
+              shadowColor: '#000',
+              shadowOpacity: t.mode === 'dark' ? 0.35 : 0.05,
+              shadowRadius: 16, shadowOffset: { width: 0, height: 8 },
+              elevation: 3,
+            }} />
+
+            {/* Decoration sub-layer: brass arabesque flourishes that bleed
+                past the corners, clipped to the card's rounded shape on
+                their own layer so they never affect text rendering. */}
+            <View pointerEvents="none" style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              borderRadius: t.radius.xl,
+              overflow: 'hidden',
+            }}>
+              <View style={{ position: 'absolute', right: -36, top: -36, opacity: t.mode === 'dark' ? 0.08 : 0.06 }}>
+                <ArabesqueMark size={180} color={t.colors.brass} />
+              </View>
+              <View style={{ position: 'absolute', left: -36, bottom: -36, opacity: t.mode === 'dark' ? 0.06 : 0.04 }}>
+                <ArabesqueMark size={140} color={t.colors.brass} />
+              </View>
             </View>
 
+            <View style={{ padding: t.spacing(5), gap: t.spacing(3) }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
@@ -331,15 +360,15 @@ export default function VerseReader() {
             {showBismillah && (
               <Text
                 allowFontScaling={false}
+                textBreakStrategy="simple"
                 style={{
                   color: t.colors.brass,
                   fontSize: Math.round(arabicSize * 0.85),
-                  lineHeight: Math.round(arabicSize * (Platform.OS === 'android' ? 1.85 : 1.6)),
+                  lineHeight: Math.round(arabicSize * (Platform.OS === 'android' ? 2.1 : 1.6)),
                   textAlign: 'center', writingDirection: 'rtl',
                   fontFamily: arabicFontFor(settings.arabicScript),
                   marginBottom: t.spacing(1),
-                  paddingHorizontal: t.spacing(1),
-                  ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' } : null),
+                  paddingHorizontal: arabicGutter,
                 }}>
                 {BISMILLAH}
               </Text>
@@ -348,30 +377,29 @@ export default function VerseReader() {
             {current && (
               <Text
                 allowFontScaling={false}
+                textBreakStrategy="simple"
                 style={{
                   color: t.colors.text, fontSize: arabicSize, lineHeight: arabicLineHeight,
                   textAlign: 'center', writingDirection: 'rtl',
                   fontFamily: arabicFontFor(settings.arabicScript),
-                  // Extra horizontal breathing room so cursive joiners on the
-                  // last word of a line aren't clipped by the card edge on
-                  // Android (where text measurement is more aggressive).
-                  paddingHorizontal: t.spacing(Platform.OS === 'android' ? 2 : 1),
-                  ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' } : null),
+                  paddingHorizontal: arabicGutter,
                 }}>
                 {tajweedSegments
-                  ? tajweedSegments.map((seg, i) => (
-                      // Re-declare fontFamily on each nested span: Android's
-                      // text renderer does not always inherit it across nested
-                      // <Text> nodes, which causes neighbouring Arabic letters
-                      // to render in a fallback font and lose their ligatures
-                      // at the segment boundary.
-                      <Text key={i} style={{
-                        fontFamily: arabicFontFor(settings.arabicScript),
-                        ...(seg.rule ? { color: TAJWEED_COLORS[seg.rule] } : null),
-                      }}>
-                        {seg.text}
-                      </Text>
-                    ))
+                  ? // Plain segments are emitted as raw string children so they
+                    // contribute directly to the parent <Text>'s spannable with
+                    // no per-segment wrapper. Each wrapper would otherwise add
+                    // RN's internal text-fragment spans to the SpannableString,
+                    // and any metric-affecting span between two joining letters
+                    // forces HarfBuzz to break the shape run \u2014 visibly cutting
+                    // cursive joins like the mim/noon in فَمَنِ / مِّن. Rule-coloured
+                    // segments still need a wrapper for the colour, but
+                    // ForegroundColorSpan alone is a CharacterStyle (non-metric)
+                    // so it does not interrupt shaping with its neighbours.
+                    tajweedSegments.map((seg, i) =>
+                      seg.rule
+                        ? <Text key={i} style={{ color: TAJWEED_COLORS[seg.rule] }}>{seg.text}</Text>
+                        : seg.text
+                    )
                   : current.arabic}
               </Text>
             )}
@@ -384,6 +412,7 @@ export default function VerseReader() {
                 <View style={{ flex: 1, height: 0.75, backgroundColor: t.colors.hairline }} />
               </View>
             )}
+            </View>
           </View>
 
           {settings.showTransliteration && current && (

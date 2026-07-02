@@ -1,7 +1,10 @@
 import {
-  parseTajweed,
-  stripTajweed,
+  coalesceForJoining,
   hasTajweedMarkup,
+  parseTajweed,
+  parseTajweedForRender,
+  rebalanceCombiningMarks,
+  stripTajweed,
   TAJWEED_COLORS,
   TAJWEED_LABELS,
   TAJWEED_LEGEND_ORDER,
@@ -167,6 +170,164 @@ describe('hasTajweedMarkup', () => {
     expect(hasTajweedMarkup(s)).toBe(true);
     expect(hasTajweedMarkup(s)).toBe(true);
     expect(hasTajweedMarkup(s)).toBe(true);
+  });
+});
+
+describe('coalesceForJoining', () => {
+  // The boundary between "ٱلرَّ" (rule g) and "حْمَ" (no rule) is safe because
+  // ra is a non-left-joining letter — Arabic naturally breaks the cursive run
+  // there. The boundary between "حْمَ" and "ـٰ" (rule n) cuts mim-base from
+  // its dagger-alif and would break joining; same for "ـٰ"→"نِ" which cuts
+  // mim-noon. The unsafe seams collapse into a single segment, and because
+  // the two sides disagree on rule the merged run drops the rule rather than
+  // extending the madd colour onto the surrounding plain letters.
+  it('merges mid-word rule boundaries that would break cursive joining', () => {
+    const out = coalesceForJoining([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَ' },
+      { text: 'ـٰ', rule: 'n' },
+      { text: 'نِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+  });
+
+  it('leaves whitespace-separated word boundaries alone', () => {
+    const out = coalesceForJoining([
+      { text: 'بِسْمِ ', rule: 'h' },
+      { text: 'ٱللَّهِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'بِسْمِ ', rule: 'h' },
+      { text: 'ٱللَّهِ' },
+    ]);
+  });
+
+  it('leaves boundaries after a non-left-joining letter alone', () => {
+    // ر (ra) is right-joining only, so the cursive run is already broken
+    // after it. The colour transition can survive as-is.
+    const out = coalesceForJoining([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+  });
+
+  it('drops the rule when merging a coloured segment with an uncoloured one', () => {
+    // فَمَ (no rule) → نِ (rule a). Mim joins to noon, so the boundary is
+    // unsafe and must be merged to keep joining intact on Android. The
+    // merged run loses the rule rather than extending the idgham colour
+    // onto the leading "فَمَ" letters — narrow colouring beats extending
+    // a rule's reach.
+    const out = coalesceForJoining([
+      { text: 'فَمَ' },
+      { text: 'نِ', rule: 'a' },
+    ]);
+    expect(out).toEqual([{ text: 'فَمَنِ' }]);
+  });
+
+  it('keeps the rule when merging two segments that share it', () => {
+    // Contiguous same-rule runs split mid-word by the source data merge
+    // back into a single coloured run — the rule isn't dropped because
+    // there's no disagreement to resolve.
+    const out = coalesceForJoining([
+      { text: 'بَ', rule: 'q' },
+      { text: 'تِ', rule: 'q' },
+    ]);
+    expect(out).toEqual([{ text: 'بَتِ', rule: 'q' }]);
+  });
+
+  it('is a no-op on already-coalesced input (idempotent)', () => {
+    const once = coalesceForJoining([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+    const twice = coalesceForJoining(once);
+    expect(twice).toEqual(once);
+  });
+
+  it('returns identical output for empty input', () => {
+    expect(coalesceForJoining([])).toEqual([]);
+  });
+});
+
+describe('rebalanceCombiningMarks', () => {
+  // The alquran.cloud edition closes its rule bracket after the base letter
+  // but before the trailing harakah, so the fatha on fa lands in the next
+  // plain segment. Without rebalancing, fa renders in its terminal form and
+  // the fatha floats free on a baseline stub.
+  it('moves a leading harakah from segment N onto the base letter in N-1', () => {
+    const out = rebalanceCombiningMarks([
+      { text: 'صٌ\u200c\u06da ف', rule: 'f' },
+      { text: '\u064Eمَنِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'صٌ\u200c\u06da ف\u064E', rule: 'f' },
+      { text: 'مَنِ' },
+    ]);
+  });
+
+  it('migrates a multi-mark cluster (shadda + kasra)', () => {
+    const out = rebalanceCombiningMarks([
+      { text: 'م', rule: 'g' },
+      { text: '\u0651\u0650نَ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'م\u0651\u0650', rule: 'g' },
+      { text: 'نَ' },
+    ]);
+  });
+
+  it('drops segments that become empty after their marks are moved', () => {
+    const out = rebalanceCombiningMarks([
+      { text: 'ف', rule: 'f' },
+      { text: '\u064E', rule: 'q' },
+      { text: 'مَنِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'ف\u064E', rule: 'f' },
+      { text: 'مَنِ' },
+    ]);
+  });
+
+  it('is a no-op when no segment starts with a combining mark', () => {
+    const input = [
+      { text: 'ٱلرَّ', rule: 'g' as const },
+      { text: 'حْمَـٰنِ' },
+    ];
+    expect(rebalanceCombiningMarks(input)).toEqual(input);
+  });
+
+  it('returns an empty array for empty input', () => {
+    expect(rebalanceCombiningMarks([])).toEqual([]);
+  });
+});
+
+describe('parseTajweedForRender', () => {
+  it('parses, rebalances, and joining-coalesces in one pass', () => {
+    // End-to-end on the Ar-Rahman fragment: the inner madd-normal mark on
+    // the dagger alif is sandwiched between joining letters, so coalescing
+    // absorbs it into the surrounding run and drops the rule rather than
+    // colouring the whole "حْمَـٰنِ" blue.
+    const out = parseTajweedForRender('[g[ٱلرَّ]حْمَ[n[ـٰ]نِ');
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+  });
+
+  // Real Al-Baqarah 2:194 fragment: the ikhafa wraps the base fa but the
+  // fatha lives in the trailing plain segment. Rebalance heals the cluster
+  // onto fa; the fa→mim boundary is then unsafe so coalesce merges it and
+  // drops the rule, producing one continuous "صٌ‌ۚ فَمَنِ" shape run.
+  it('heals fa+fatha across a rule boundary (2:194 case)', () => {
+    const out = parseTajweedForRender('[f[صٌ\u200c\u06da ف]\u064Eمَنِ');
+    expect(out).toEqual([{ text: 'صٌ\u200c\u06da فَمَنِ' }]);
   });
 });
 
