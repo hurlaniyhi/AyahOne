@@ -71,14 +71,6 @@ export function spreadDailySlots(anchor: { h: number; m: number }): { h: number;
   return out;
 }
 
-// Warm, time-of-day-aware title so the three daily nudges read as intentional
-// check-ins rather than an identical alert repeated three times.
-function greetingFor(hour: number, t: Record<string, string>): string {
-  if (hour < 12) return t.notifGreetingMorning;
-  if (hour < 17) return t.notifGreetingAfternoon;
-  return t.notifGreetingEvening;
-}
-
 // One-time module init: how foreground notifications surface, plus the
 // Android channel (mandatory for the OS to display anything on API 26+).
 let handlerInstalled = false;
@@ -210,7 +202,7 @@ export async function syncReminders(): Promise<void> {
     await Notifications.scheduleNotificationAsync({
       identifier: `${ID_DAILY_GOAL}-${i}`,
       content: {
-        title: greetingFor(slot.h, t),
+        title: t.notifGoalGreeting,
         body: goalBody,
         data: { url: '/(tabs)/reading' },
         sound: 'default',
