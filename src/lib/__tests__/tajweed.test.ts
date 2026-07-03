@@ -329,6 +329,29 @@ describe('parseTajweedForRender', () => {
     const out = parseTajweedForRender('[f[صٌ\u200c\u06da ف]\u064Eمَنِ');
     expect(out).toEqual([{ text: 'صٌ\u200c\u06da فَمَنِ' }]);
   });
+
+  // With coalesce=false (the iOS path) the joining-coalesce pass is skipped,
+  // so every rule colour is kept — CoreText joins cursively across nested
+  // <Text> boundaries, so there is no shaping reason to drop the madd rule.
+  it('keeps every rule colour when coalesce is disabled (iOS path)', () => {
+    const out = parseTajweedForRender('[g[ٱلرَّ]حْمَ[n[ـٰ]نِ', false);
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَ' },
+      { text: 'ـٰ', rule: 'n' },
+      { text: 'نِ' },
+    ]);
+  });
+
+  it('still heals split clusters when coalesce is disabled', () => {
+    // rebalance always runs, so the fatha rejoins fa even on the iOS path —
+    // but the ikhafa rule on fa is preserved rather than merged away.
+    const out = parseTajweedForRender('[f[صٌ\u200c\u06da ف]\u064Eمَنِ', false);
+    expect(out).toEqual([
+      { text: 'صٌ\u200c\u06da ف\u064E', rule: 'f' },
+      { text: 'مَنِ' },
+    ]);
+  });
 });
 
 describe('legend metadata', () => {

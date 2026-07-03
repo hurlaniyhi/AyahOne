@@ -145,9 +145,12 @@ export default function VerseReader() {
     () => current ? hasanatFor(stripTajweed(current.arabic)) : 0,
     [current],
   );
+  // Only Android needs the joining-coalesce pass (which drops some rule
+  // colours to protect cursive shaping across nested <Text> boundaries). iOS
+  // joins fine across those boundaries, so it keeps every tajweed colour.
   const tajweedSegments = useMemo(
     () => current && settings.arabicScript === 'tajweed'
-      ? parseTajweedForRender(current.arabic)
+      ? parseTajweedForRender(current.arabic, Platform.OS === 'android')
       : null,
     [current, settings.arabicScript],
   );

@@ -280,15 +280,21 @@ export function rebalanceCombiningMarks(segments: TajweedSegment[]): TajweedSegm
   return out.filter(s => s.text.length > 0);
 }
 
-// Public entry point used by the reader. Two passes back-to-back:
+// Public entry point used by the reader. Two passes:
 //   1) rebalanceCombiningMarks heals fa+fatha / saad+kasra grapheme clusters
-//      that the source data splits across a rule boundary.
-//   2) coalesceForJoining then merges any remaining boundary that would still
-//      cut a cursive join (fa→mim across a rule edge, mim→noon across the
-//      idgham-then-ikhafa edge in "ةٌ مِّن صِيَامٍ", etc.). The rule is dropped
-//      on the merged run because RN cannot colour a sub-range of a single
-//      <Text> on Android without re-introducing the wrapper that broke
-//      shaping in the first place.
-export function parseTajweedForRender(text: string): TajweedSegment[] {
-  return coalesceForJoining(rebalanceCombiningMarks(parseTajweed(text)));
+//      that the source data splits across a rule boundary. Always run — it
+//      never drops a rule, it only reunites marks with their base letter.
+//   2) coalesceForJoining merges any remaining boundary that would still cut a
+//      cursive join (fa→mim across a rule edge, mim→noon across the idgham-
+//      then-ikhafa edge in "ةٌ مِّن صِيَامٍ", etc.), dropping the rule on the
+//      merged run. This is only needed on Android, where each nested <Text>
+//      inserts a metric-affecting span that breaks HarfBuzz shaping between
+//      joining letters. iOS/CoreText joins cursively across nested <Text>
+//      boundaries, so there `coalesce` is left off to keep every rule colour.
+export function parseTajweedForRender(
+  text: string,
+  coalesce: boolean = true,
+): TajweedSegment[] {
+  const balanced = rebalanceCombiningMarks(parseTajweed(text));
+  return coalesce ? coalesceForJoining(balanced) : balanced;
 }

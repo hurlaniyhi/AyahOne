@@ -22,6 +22,17 @@ const KAHF_HOUR_DEFAULT = 9;    // 9 AM local
 const KAHF_WEEKDAY = 5;         // Friday (JS getDay: 0=Sun … 5=Fri)
 const KAHF_TOTAL_AYAH = 110;
 
+// Each reminder fires up to three times across the day so a missed goal /
+// unread Al-Kahf gets a few gentle nudges rather than a single easily-missed
+// one. The user's chosen time is always one of the three slots (see
+// spreadDailySlots); the OS schedule keeps a stable id per slot.
+const SLOTS_PER_DAY = 3;
+// Comfortable daytime window the extra slots are spread across, and the
+// minimum span we insist on so the three nudges never bunch up (≥3h apart).
+const DAY_START_MIN = 9 * 60;   // 09:00
+const DAY_END_MIN = 21 * 60;    // 21:00
+const MIN_SPREAD_MIN = 6 * 60;  // 6h window ⇒ 3 slots at least 3h apart
+
 // Parse a stored "HH:MM" string into hour/minute, falling back to the given
 // defaults when the value is missing or malformed (e.g. legacy persisted
 // settings predating this feature).
@@ -31,6 +42,41 @@ function parseHM(raw: string, fbHour: number, fbMin = 0): { h: number; m: number
   const h = Math.max(0, Math.min(23, parseInt(m[1], 10)));
   const mn = Math.max(0, Math.min(59, parseInt(m[2], 10)));
   return { h, m: mn };
+}
+
+// Turns the user's single chosen reminder time into three sensibly-spaced
+// daytime slots, always including the chosen time itself. If the anchor sits
+// late enough in the day, the two extra nudges come *earlier* (…, anchor); if
+// it's early, they come *later* (anchor, …). The slots are evenly distributed
+// across the resulting window so they never feel like spam.
+export function spreadDailySlots(anchor: { h: number; m: number }): { h: number; m: number }[] {
+  const a = anchor.h * 60 + anchor.m;
+  let start: number;
+  let end: number;
+  if (a - DAY_START_MIN >= MIN_SPREAD_MIN) {
+    // Anchor is the day's last nudge; fit the earlier two before it.
+    start = DAY_START_MIN;
+    end = a;
+  } else {
+    // Anchor is early; place the later two after it, ending by day's end.
+    start = a;
+    end = Math.max(a + MIN_SPREAD_MIN, DAY_END_MIN);
+  }
+  const step = Math.round((end - start) / (SLOTS_PER_DAY - 1));
+  const out: { h: number; m: number }[] = [];
+  for (let i = 0; i < SLOTS_PER_DAY; i++) {
+    const mins = start + step * i;
+    out.push({ h: Math.floor(mins / 60) % 24, m: mins % 60 });
+  }
+  return out;
+}
+
+// Warm, time-of-day-aware title so the three daily nudges read as intentional
+// check-ins rather than an identical alert repeated three times.
+function greetingFor(hour: number, t: Record<string, string>): string {
+  if (hour < 12) return t.notifGreetingMorning;
+  if (hour < 17) return t.notifGreetingAfternoon;
+  return t.notifGreetingEvening;
 }
 
 // One-time module init: how foreground notifications surface, plus the
@@ -117,26 +163,40 @@ async function safeCancel(id: string) {
   try { await Notifications.cancelScheduledNotificationAsync(id); } catch { /* noop */ }
 }
 
+// All scheduled ids for a reminder family: the per-slot ids plus the legacy
+// single id (pre-3×-a-day builds scheduled under the bare base), so upgrading
+// users don't keep a stale extra notification around after this change.
+function reminderIds(base: string): string[] {
+  const ids = [base];
+  for (let i = 0; i < SLOTS_PER_DAY; i++) ids.push(`${base}-${i}`);
+  return ids;
+}
+
+async function cancelReminder(base: string) {
+  for (const id of reminderIds(base)) await safeCancel(id);
+}
+
 // Reschedules both reminders against the current store state. Idempotent:
 // callers should invoke it on app boot, on foreground, and after any state
 // change that affects goal/Kahf completion (recordVerseRead, recordSurahProgress,
 // setDailyGoal, toggling notificationsEnabled).
 export async function syncReminders(): Promise<void> {
   const s = useAppStore.getState();
-  await safeCancel(ID_DAILY_GOAL);
-  await safeCancel(ID_FRIDAY_KAHF);
+  await cancelReminder(ID_DAILY_GOAL);
+  await cancelReminder(ID_FRIDAY_KAHF);
   if (!s.settings.notificationsEnabled) return;
   const perm = await Notifications.getPermissionsAsync();
   if (!perm.granted) return;
 
   const t = getStrings();
 
-  // Daily goal: skip today's slot only if user has already met today's goal.
+  // Daily goal: skip today's slots only if the user has already met today's
+  // goal (each slot then rolls to tomorrow). The chosen time is spread into
+  // three sensibly-spaced nudges so a missed goal is caught more than once.
   const todayVerses = s.stats.daily[todayKey()]?.verses ?? 0;
   const goalMet = todayVerses >= s.dailyGoalVerses;
   const remaining = Math.max(0, s.dailyGoalVerses - todayVerses);
-  const goalHM = parseHM(s.settings.goalReminderTime, GOAL_HOUR_DEFAULT);
-  const goalDate = nextDailyAt(goalHM.h, goalHM.m, goalMet);
+  const goalSlots = spreadDailySlots(parseHM(s.settings.goalReminderTime, GOAL_HOUR_DEFAULT));
   const goalBody = goalMet
     ? fmt(t.notifGoalMet, { goal: s.dailyGoalVerses })
     : remaining === s.dailyGoalVerses
@@ -145,46 +205,61 @@ export async function syncReminders(): Promise<void> {
           n: remaining,
           label: remaining === 1 ? t.notifGoalVerseSingular : t.notifGoalVersePlural,
         });
-  await Notifications.scheduleNotificationAsync({
-    identifier: ID_DAILY_GOAL,
-    content: {
-      title: t.notifGoalTitle,
-      body: goalBody,
-      data: { url: '/(tabs)/reading' },
-      sound: 'default',
-    },
-    // `channelId` is required on Android for the OS to route the notification
-    // through the HIGH-importance channel we register in initNotifications().
-    // Without it Android 8+ silently drops the alert (no banner, no sound).
-    trigger: { type: SchedulableTriggerInputTypes.DATE, date: goalDate, channelId: 'default' },
-  });
+  for (let i = 0; i < goalSlots.length; i++) {
+    const slot = goalSlots[i];
+    await Notifications.scheduleNotificationAsync({
+      identifier: `${ID_DAILY_GOAL}-${i}`,
+      content: {
+        title: greetingFor(slot.h, t),
+        body: goalBody,
+        data: { url: '/(tabs)/reading' },
+        sound: 'default',
+      },
+      // `channelId` is required on Android for the OS to route the notification
+      // through the HIGH-importance channel we register in initNotifications().
+      // Without it Android 8+ silently drops the alert (no banner, no sound).
+      trigger: {
+        type: SchedulableTriggerInputTypes.DATE,
+        date: nextDailyAt(slot.h, slot.m, goalMet),
+        channelId: 'default',
+      },
+    });
+  }
 
-  // Friday Al-Kahf: skip today only if Kahf is done for today's Friday.
+  // Friday Al-Kahf: three nudges across Friday, skipped for this week only if
+  // Kahf is already completed for today's Friday (slots then roll to next
+  // Friday). Slots whose time has already passed today naturally roll forward.
   const isFridayToday = new Date().getDay() === KAHF_WEEKDAY;
   const kahfAyahToday = (s.kahfFriday?.date === todayKey() ? (s.kahfFriday?.ayah ?? 0) : 0);
   const kahfDoneToday = isFridayToday && kahfAyahToday >= KAHF_TOTAL_AYAH;
-  const kahfHM = parseHM(s.settings.kahfReminderTime, KAHF_HOUR_DEFAULT);
-  const kahfDate = nextWeeklyAt(KAHF_WEEKDAY, kahfHM.h, kahfHM.m, kahfDoneToday);
+  const kahfSlots = spreadDailySlots(parseHM(s.settings.kahfReminderTime, KAHF_HOUR_DEFAULT));
   const kahfBody = kahfDoneToday
     ? t.notifKahfDone
     : isFridayToday && kahfAyahToday > 0
       ? fmt(t.notifKahfInProgress, { n: kahfAyahToday, total: KAHF_TOTAL_AYAH })
       : t.notifKahfNotStarted;
-  await Notifications.scheduleNotificationAsync({
-    identifier: ID_FRIDAY_KAHF,
-    content: {
-      title: t.notifKahfTitle,
-      body: kahfBody,
-      data: { url: '/read/18' },
-      sound: 'default',
-    },
-    trigger: { type: SchedulableTriggerInputTypes.DATE, date: kahfDate, channelId: 'default' },
-  });
+  for (let i = 0; i < kahfSlots.length; i++) {
+    const slot = kahfSlots[i];
+    await Notifications.scheduleNotificationAsync({
+      identifier: `${ID_FRIDAY_KAHF}-${i}`,
+      content: {
+        title: t.notifKahfTitle,
+        body: kahfBody,
+        data: { url: '/read/18' },
+        sound: 'default',
+      },
+      trigger: {
+        type: SchedulableTriggerInputTypes.DATE,
+        date: nextWeeklyAt(KAHF_WEEKDAY, slot.h, slot.m, kahfDoneToday),
+        channelId: 'default',
+      },
+    });
+  }
 }
 
 export async function cancelAllReminders(): Promise<void> {
-  await safeCancel(ID_DAILY_GOAL);
-  await safeCancel(ID_FRIDAY_KAHF);
+  await cancelReminder(ID_DAILY_GOAL);
+  await cancelReminder(ID_FRIDAY_KAHF);
 }
 
 // Subscribes to the store and re-syncs whenever a slice that affects the
