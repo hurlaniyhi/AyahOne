@@ -258,6 +258,41 @@ export function coalesceForJoining(segments: TajweedSegment[]): TajweedSegment[]
   return out;
 }
 
+// Zero-width joiner — Unicode's Join_Causing control character. It has no
+// glyph of its own, but it tells a shaper "treat the adjacent letter as
+// joined on this side" even when nothing else follows in the same buffer.
+const ZWJ = '‍';
+
+// Alternative to coalesceForJoining that never drops a rule colour. Android's
+// Fabric renderer shapes every coloured <Text> fragment as its own separate
+// HarfBuzz run (a MetricAffectingSpan rides along with every nested <Text>
+// regardless of its style — see the call site in app/read/[surah].tsx), so
+// neither side of a fragment boundary "sees" the letter across it when
+// picking an initial/medial/final glyph form. Appending a ZWJ to the end of
+// the earlier run and prepending one to the start of the later run gives
+// each run, independently, the hint that a joining neighbour sits just past
+// its own edge — both sides then pick the connected glyph shape despite
+// being shaped apart, and the rule segmentation itself is untouched.
+//
+// EXPERIMENTAL: this relies on Android's text shaper honouring Join_Causing
+// characters across independently-shaped runs, which is not something we've
+// been able to verify without a physical device. Treat coalesceForJoining as
+// the known-safe fallback if this does not hold up under real testing.
+//
+// Idempotent by construction: once a ZWJ sits at a boundary, it is neither
+// an Arabic letter nor a mark, so endsJoinsLeft/startsJoinsRight see it and
+// report that boundary as already safe — no need to guard against re-adding.
+export function bridgeCursiveJoins(segments: TajweedSegment[]): TajweedSegment[] {
+  const out: TajweedSegment[] = segments.map(s => ({ ...s }));
+  for (let i = 0; i < out.length - 1; i++) {
+    if (endsJoinsLeft(out[i].text) && startsJoinsRight(out[i + 1].text)) {
+      out[i].text += ZWJ;
+      out[i + 1].text = ZWJ + out[i + 1].text;
+    }
+  }
+  return out;
+}
+
 // Migrates any leading combining marks of segment N onto the tail of segment
 // N-1. The alquran.cloud tajweed edition wraps rule spans around the BASE
 // LETTER (`[f[…ف]` ) and leaves the trailing harakah in the following plain
@@ -280,21 +315,30 @@ export function rebalanceCombiningMarks(segments: TajweedSegment[]): TajweedSegm
   return out.filter(s => s.text.length > 0);
 }
 
-// Public entry point used by the reader. Two passes:
-//   1) rebalanceCombiningMarks heals fa+fatha / saad+kasra grapheme clusters
-//      that the source data splits across a rule boundary. Always run — it
-//      never drops a rule, it only reunites marks with their base letter.
-//   2) coalesceForJoining merges any remaining boundary that would still cut a
-//      cursive join (fa→mim across a rule edge, mim→noon across the idgham-
-//      then-ikhafa edge in "ةٌ مِّن صِيَامٍ", etc.), dropping the rule on the
-//      merged run. This is only needed on Android, where each nested <Text>
-//      inserts a metric-affecting span that breaks HarfBuzz shaping between
-//      joining letters. iOS/CoreText joins cursively across nested <Text>
-//      boundaries, so there `coalesce` is left off to keep every rule colour.
+// How parseTajweedForRender protects cursive joins across a rule boundary:
+//   'none'     — no protection. Correct on iOS/CoreText, which joins fine
+//                across nested <Text> boundaries regardless of style.
+//   'bridge'   — EXPERIMENTAL. Keeps every rule colour by inserting ZWJ hints
+//                at unsafe boundaries (see bridgeCursiveJoins). Needs on-device
+//                verification on Android before it can be trusted as default.
+//   'coalesce' — known-safe fallback for Android. Merges unsafe boundaries,
+//                dropping the rule when the merged sides disagree, in
+//                exchange for guaranteed correct joining (see coalesceForJoining).
+export type TajweedJoinStrategy = 'none' | 'bridge' | 'coalesce';
+
+// Public entry point used by the reader. Always runs rebalanceCombiningMarks
+// first to heal fa+fatha / saad+kasra grapheme clusters that the source data
+// splits across a rule boundary — it never drops a rule, it only reunites
+// marks with their base letter — then applies the requested join-protection
+// strategy on top.
 export function parseTajweedForRender(
   text: string,
-  coalesce: boolean = true,
+  strategy: TajweedJoinStrategy = 'coalesce',
 ): TajweedSegment[] {
   const balanced = rebalanceCombiningMarks(parseTajweed(text));
-  return coalesce ? coalesceForJoining(balanced) : balanced;
+  switch (strategy) {
+    case 'bridge': return bridgeCursiveJoins(balanced);
+    case 'coalesce': return coalesceForJoining(balanced);
+    case 'none': return balanced;
+  }
 }

@@ -12,7 +12,7 @@ import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
 import { arabicFontFor } from '@/lib/quranText';
-import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
+import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS, type TajweedJoinStrategy } from '@/lib/tajweed';
 import { IconButton } from '@/components/Button';
 import { AyahMarker } from '@/components/AyahMarker';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
@@ -23,6 +23,13 @@ import { useTodayStats } from '@/store/selectors';
 // Standard Bismillah, shown as an opener for ayah 1 of every surah except
 // Al-Fatihah (1) where it is itself the first ayah, and At-Tawbah (9).
 const BISMILLAH = '\u0628\u0650\u0633\u0652\u0645\u0650 \u0627\u0644\u0644\u0651\u064E\u0647\u0650 \u0627\u0644\u0631\u0651\u064E\u062D\u0652\u0645\u064E\u0670\u0646\u0650 \u0627\u0644\u0631\u0651\u064E\u062D\u0650\u064A\u0645\u0650';
+
+// EXPERIMENTAL: bridges cursive joins with invisible joiner hints instead of
+// dropping tajweed colours at unsafe boundaries (see bridgeCursiveJoins in
+// lib/tajweed) \u2014 unverified without a physical Android device. If joining
+// still visibly breaks under real testing, flip this to 'coalesce', the
+// previously-shipped, verified-safe strategy that drops some colours instead.
+const ANDROID_TAJWEED_JOIN_STRATEGY: TajweedJoinStrategy = 'bridge'; // "bridge" or "coalesce"
 
 export default function VerseReader() {
   const t = useTheme();
@@ -145,12 +152,20 @@ export default function VerseReader() {
     () => current ? hasanatFor(stripTajweed(current.arabic)) : 0,
     [current],
   );
-  // Only Android needs the joining-coalesce pass (which drops some rule
-  // colours to protect cursive shaping across nested <Text> boundaries). iOS
-  // joins fine across those boundaries, so it keeps every tajweed colour.
+  // Only Android needs join protection at all. Every nested <Text> fragment
+  // on Android's Fabric renderer gets its own ReactAbsoluteSizeSpan (a
+  // MetricAffectingSpan) regardless of whether its font size actually
+  // differs from its parent's — see TextLayoutManager.kt's unconditional
+  // `SetSpanOperation(..., ReactAbsoluteSizeSpan(...))` per fragment. A
+  // MetricAffectingSpan boundary forces Minikin/HarfBuzz to shape each side
+  // as a separate run, which cuts cursive joins even though the *color*
+  // span itself (ForegroundColorSpan) is non-metric. iOS/CoreText has no
+  // such per-fragment metric span, so it joins fine and keeps every colour
+  // regardless of strategy — 'none' is always correct there. See
+  // ANDROID_TAJWEED_JOIN_STRATEGY above for what Android uses.
   const tajweedSegments = useMemo(
     () => current && settings.arabicScript === 'tajweed'
-      ? parseTajweedForRender(current.arabic, Platform.OS === 'android')
+      ? parseTajweedForRender(current.arabic, Platform.OS === 'android' ? ANDROID_TAJWEED_JOIN_STRATEGY : 'none')
       : null,
     [current, settings.arabicScript],
   );
@@ -395,9 +410,13 @@ export default function VerseReader() {
                     // and any metric-affecting span between two joining letters
                     // forces HarfBuzz to break the shape run \u2014 visibly cutting
                     // cursive joins like the mim/noon in فَمَنِ / مِّن. Rule-coloured
-                    // segments still need a wrapper for the colour, but
-                    // ForegroundColorSpan alone is a CharacterStyle (non-metric)
-                    // so it does not interrupt shaping with its neighbours.
+                    // segments still need a <Text> wrapper for the colour;
+                    // on Android, RN's Fabric renderer attaches a
+                    // MetricAffectingSpan to every such fragment regardless
+                    // of its own style (see TextLayoutManager.kt), which can
+                    // cut a cursive join at the boundary — that risk is what
+                    // parseTajweedForRender's Android-only coalesce pass
+                    // absorbs upstream by merging away unsafe boundaries.
                     tajweedSegments.map((seg, i) =>
                       seg.rule
                         ? <Text key={i} style={{ color: TAJWEED_COLORS[seg.rule] }}>{seg.text}</Text>

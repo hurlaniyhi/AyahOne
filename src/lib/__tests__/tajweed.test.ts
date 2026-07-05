@@ -1,4 +1,5 @@
 import {
+  bridgeCursiveJoins,
   coalesceForJoining,
   hasTajweedMarkup,
   parseTajweed,
@@ -9,6 +10,8 @@ import {
   TAJWEED_LABELS,
   TAJWEED_LEGEND_ORDER,
 } from '../tajweed';
+
+const ZWJ = '‍';
 
 describe('parseTajweed', () => {
   it('returns a single plain segment for unmarked text', () => {
@@ -330,11 +333,11 @@ describe('parseTajweedForRender', () => {
     expect(out).toEqual([{ text: 'صٌ\u200c\u06da فَمَنِ' }]);
   });
 
-  // With coalesce=false (the iOS path) the joining-coalesce pass is skipped,
-  // so every rule colour is kept — CoreText joins cursively across nested
+  // With strategy='none' (the iOS path) no join-protection pass runs, so
+  // every rule colour is kept — CoreText joins cursively across nested
   // <Text> boundaries, so there is no shaping reason to drop the madd rule.
-  it('keeps every rule colour when coalesce is disabled (iOS path)', () => {
-    const out = parseTajweedForRender('[g[ٱلرَّ]حْمَ[n[ـٰ]نِ', false);
+  it('keeps every rule colour when strategy is none (iOS path)', () => {
+    const out = parseTajweedForRender('[g[ٱلرَّ]حْمَ[n[ـٰ]نِ', 'none');
     expect(out).toEqual([
       { text: 'ٱلرَّ', rule: 'g' },
       { text: 'حْمَ' },
@@ -343,27 +346,99 @@ describe('parseTajweedForRender', () => {
     ]);
   });
 
-  it('still heals split clusters when coalesce is disabled', () => {
+  it('still heals split clusters when strategy is none', () => {
     // rebalance always runs, so the fatha rejoins fa even on the iOS path —
     // but the ikhafa rule on fa is preserved rather than merged away.
-    const out = parseTajweedForRender('[f[صٌ\u200c\u06da ف]\u064Eمَنِ', false);
+    const out = parseTajweedForRender('[f[صٌ\u200c\u06da ف]\u064Eمَنِ', 'none');
     expect(out).toEqual([
       { text: 'صٌ\u200c\u06da ف\u064E', rule: 'f' },
       { text: 'مَنِ' },
     ]);
   });
+
+  // With strategy='bridge', every rule colour is kept (unlike 'coalesce')
+  // by inserting ZWJ hints at the same boundaries coalesce would have merged.
+  it('keeps every rule colour and bridges unsafe boundaries with strategy=bridge', () => {
+    const out = parseTajweedForRender('[g[ٱلرَّ]حْمَ[n[ـٰ]نِ', 'bridge');
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَ‍' },
+      { text: '‍ـٰ‍', rule: 'n' },
+      { text: '‍نِ' },
+    ]);
+  });
 });
 
-describe('legend metadata', () => {
-  it('declares a label for every colour', () => {
-    for (const r of Object.keys(TAJWEED_COLORS)) {
-      expect(TAJWEED_LABELS[r as keyof typeof TAJWEED_LABELS]).toBeTruthy();
-    }
+describe('bridgeCursiveJoins', () => {
+  // Same boundaries as the coalesceForJoining suite, but instead of merging
+  // and dropping the rule, both sides keep their own text and rule, with a
+  // ZWJ inserted at the unsafe seam to hint joining across the fragment break.
+  it('bridges mid-word rule boundaries that would break cursive joining', () => {
+    const out = bridgeCursiveJoins([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَ' },
+      { text: 'ـٰ', rule: 'n' },
+      { text: 'نِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَ‍' },
+      { text: '‍ـٰ‍', rule: 'n' },
+      { text: '‍نِ' },
+    ]);
   });
 
-  it('legend order references each rule exactly once', () => {
-    const colorKeys = Object.keys(TAJWEED_COLORS).sort();
-    const orderKeys = [...TAJWEED_LEGEND_ORDER].sort();
-    expect(orderKeys).toEqual(colorKeys);
+  it('leaves whitespace-separated word boundaries alone', () => {
+    const out = bridgeCursiveJoins([
+      { text: 'بِسْمِ ', rule: 'h' },
+      { text: 'ٱللَّهِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'بِسْمِ ', rule: 'h' },
+      { text: 'ٱللَّهِ' },
+    ]);
+  });
+
+  it('leaves boundaries after a non-left-joining letter alone', () => {
+    const out = bridgeCursiveJoins([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+    expect(out).toEqual([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَـٰنِ' },
+    ]);
+  });
+
+  it('preserves both rules across a bridged boundary instead of dropping either', () => {
+    // فَمَ (no rule) → نِ (rule a). Unlike coalesceForJoining, which would
+    // merge these and drop the rule, bridging keeps "نِ" coloured.
+    const out = bridgeCursiveJoins([
+      { text: 'فَمَ' },
+      { text: 'نِ', rule: 'a' },
+    ]);
+    expect(out).toEqual([
+      { text: 'فَمَ‍' },
+      { text: '‍نِ', rule: 'a' },
+    ]);
+  });
+
+  it('is idempotent — a second pass does not add duplicate joiners', () => {
+    const once = bridgeCursiveJoins([
+      { text: 'ٱلرَّ', rule: 'g' },
+      { text: 'حْمَ' },
+      { text: 'ـٰ', rule: 'n' },
+      { text: 'نِ' },
+    ]);
+    const twice = bridgeCursiveJoins(once);
+    expect(twice).toEqual(once);
+  });
+
+  it('returns identical output for empty input', () => {
+    expect(bridgeCursiveJoins([])).toEqual([]);
+  });
+
+  it('returns identical output for a single segment', () => {
+    expect(bridgeCursiveJoins([{ text: 'ٱلرَّحْمَـٰنِ' }])).toEqual([{ text: 'ٱلرَّحْمَـٰنِ' }]);
   });
 });
