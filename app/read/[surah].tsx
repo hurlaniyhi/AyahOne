@@ -11,7 +11,7 @@ import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
-import { arabicFontFor } from '@/lib/quranText';
+import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
 import { IconButton } from '@/components/Button';
 import { AyahMarker } from '@/components/AyahMarker';
@@ -165,11 +165,7 @@ export default function VerseReader() {
 
   // `arabicFontSize` is now a continuous px value driven by the settings slider.
   const arabicSize = settings.arabicFontSize;
-  // Android renders Arabic with tighter line metrics than iOS and clips
-  // letter descenders (notably the bowls of ب ت ث ن ي) when lineHeight is
-  // too snug; the 2.5× multiplier leaves enough room for both descenders
-  // and diacritics that sit above the baseline.
-  const arabicLineHeight = Math.round(arabicSize * (Platform.OS === 'android' ? 2.5 : 2));
+  const arabicLineHeight = arabicLineHeightFor(arabicSize);
   // Small inner gutter on Android keeps the rightmost cursive overhang of
   // initial-form letters (notably ب in بِأَيْدِيكُمْ) clear of the card's inner
   // edge. The card itself is structured below so that borderRadius and
@@ -378,7 +374,7 @@ export default function VerseReader() {
                 style={{
                   color: t.colors.brass,
                   fontSize: Math.round(arabicSize * 0.85),
-                  lineHeight: Math.round(arabicSize * (Platform.OS === 'android' ? 2.1 : 1.6)),
+                  lineHeight: arabicLineHeightFor(Math.round(arabicSize * 0.85)),
                   textAlign: 'center', writingDirection: 'rtl',
                   fontFamily: arabicFontFor(settings.arabicScript),
                   marginBottom: t.spacing(1),

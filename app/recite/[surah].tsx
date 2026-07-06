@@ -14,7 +14,7 @@ import { useAppStore } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
-import { arabicFontFor } from '@/lib/quranText';
+import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
 import {
   getRecitationFeedback, tajweedRulesIn, IslamicAiError,
@@ -39,6 +39,25 @@ const MAX_RECORDING_SECONDS = 90;
 // accessory's mic route isn't actually picking up the voice well). Warn
 // proactively rather than only discovering this after a slow AI round trip.
 const QUIET_PEAK_DBFS = -45;
+
+// Friendly banner for both the quiet-recording nudge and error states — never
+// surfaces raw native/JS error text, just a calm, actionable message that
+// matches the rest of the screen's visual language.
+function InlineNotice({ tone, icon, text }: { tone: 'warning' | 'danger'; icon: keyof typeof Ionicons.glyphMap; text: string }) {
+  const t = useTheme();
+  const color = tone === 'danger' ? t.colors.danger : t.colors.brass;
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'flex-start', gap: t.spacing(2),
+      paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(3),
+      borderRadius: t.radius.md, backgroundColor: t.colors.surfaceMuted,
+      borderLeftWidth: 3, borderLeftColor: color,
+    }}>
+      <Ionicons name={icon} size={16} color={color} style={{ marginTop: 1 }} />
+      <Text style={{ color: t.colors.text, fontSize: 13, lineHeight: 19, flex: 1 }}>{text}</Text>
+    </View>
+  );
+}
 
 export default function RecitationScreen() {
   const t = useTheme();
@@ -91,14 +110,31 @@ export default function RecitationScreen() {
   const [recordedDurationMs, setRecordedDurationMs] = useState(0);
   const [quietWarning, setQuietWarning] = useState(false);
   const peakMeteringRef = useRef(-160);
+  // Guards the auto-stop effect below against a real race: right after
+  // `recorder.record()` we set stage to 'recording' synchronously, but the
+  // native "recording started" status event that updates
+  // `recorderState.isRecording` can arrive a tick later. Without this guard,
+  // that momentary stale `isRecording === false` reading looked identical to
+  // a genuine stop and flipped stage to 'recorded' before the take even
+  // began — recording kept running natively (never actually stopped) while
+  // the UI had already moved on, which is exactly what produced the "counts
+  // up but never turns red, then errors on the next press" symptom.
+  const sawRecordingRef = useRef(false);
   const player = useAudioPlayer(recordingUri);
   const playerStatus = useAudioPlayerStatus(player);
 
-  // The `forDuration` safety cap stops the native recorder on its own, but
-  // `recorderState.isRecording` flipping false is the single source of truth
-  // the UI reacts to, regardless of who triggered the stop.
+  // Only treat `isRecording` flipping false as a genuine stop (e.g. the
+  // `forDuration` safety cap ending the take on its own) once we've actually
+  // observed it become true for this take.
   useEffect(() => {
-    if (stage === 'recording' && !recorderState.isRecording) setStage('recorded');
+    if (recorderState.isRecording) {
+      sawRecordingRef.current = true;
+      return;
+    }
+    if (stage === 'recording' && sawRecordingRef.current) {
+      sawRecordingRef.current = false;
+      setStage('recorded');
+    }
   }, [recorderState.isRecording, stage]);
 
   useEffect(() => {
@@ -113,16 +149,26 @@ export default function RecitationScreen() {
       setErrorMsg(s.reciteMicPermissionBody);
       return;
     }
+    // Release any active playback session before claiming the mic — running
+    // record and playback sessions back-to-back is exactly the kind of
+    // session churn that makes the Bluetooth-route race below more likely.
+    if (playerStatus.playing) player.pause();
+    // Defensive cleanup: if a previous take is somehow still active natively
+    // (e.g. an earlier take from before this fix left one running), stop it
+    // before starting a new one rather than layering a second `record()`
+    // call on top of it.
+    if (recorder.isRecording) await recorder.stop();
     setFeedback(null);
     setErrorMsg(null);
     setQuietWarning(false);
     peakMeteringRef.current = -160;
+    sawRecordingRef.current = false;
     // iOS's AVAudioSession.setActive can transiently throw "Session
     // activation failed" while the OS is still negotiating the Bluetooth
     // HFP (hands-free mic) route with a connected accessory (AirPods, etc).
     // A short retry lets that negotiation settle instead of surfacing a
     // failure the user has no way to act on.
-    const ATTEMPTS = 3;
+    const ATTEMPTS = 4;
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
       try {
         await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
@@ -131,19 +177,22 @@ export default function RecitationScreen() {
         setStage('recording');
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         return;
-      } catch (e) {
+      } catch {
         if (attempt === ATTEMPTS) {
-          setErrorMsg(String((e as Error)?.message ?? e));
+          // Never surface the raw native/JS error text to the user — just a
+          // calm, actionable message with a clear next step.
+          setErrorMsg(s.reciteRecordingError);
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           return;
         }
-        await new Promise(r => setTimeout(r, 400 * attempt));
+        await new Promise(r => setTimeout(r, 350 * attempt));
       }
     }
   };
 
   const stopRecording = async () => {
     await recorder.stop();
+    sawRecordingRef.current = false;
     setRecordingUri(recorder.uri);
     setRecordedDurationMs(recorderState.durationMillis);
     setQuietWarning(peakMeteringRef.current < QUIET_PEAK_DBFS);
@@ -152,6 +201,7 @@ export default function RecitationScreen() {
   };
 
   const reRecord = () => {
+    if (playerStatus.playing) player.pause();
     setFeedback(null);
     setErrorMsg(null);
     setQuietWarning(false);
@@ -198,26 +248,34 @@ export default function RecitationScreen() {
     setStage('idle');
   };
 
+  // Pause/resume toggle: tapping while playing pauses; tapping while paused
+  // resumes from exactly where playback left off. Only seeks back to the
+  // start once a take has genuinely finished playing all the way through.
   const togglePlayback = async () => {
     if (playerStatus.playing) {
       player.pause();
       return;
     }
+    setErrorMsg(null);
+    const finished = playerStatus.didJustFinish
+      || (playerStatus.duration > 0 && playerStatus.currentTime >= playerStatus.duration);
     // `play()` activates the shared AVAudioSession under the hood, which can
     // hit the same transient "Session activation failed" race as recording
     // does while a Bluetooth accessory's audio route is still settling —
     // retry with backoff instead of failing silently.
-    const ATTEMPTS = 3;
+    const ATTEMPTS = 4;
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
       try {
+        if (finished) await player.seekTo(0);
         player.play();
         return;
-      } catch (e) {
+      } catch {
         if (attempt === ATTEMPTS) {
-          setErrorMsg(String((e as Error)?.message ?? e));
+          // Never surface the raw native/JS error text to the user.
+          setErrorMsg(s.recitePlaybackError);
           return;
         }
-        await new Promise(r => setTimeout(r, 400 * attempt));
+        await new Promise(r => setTimeout(r, 350 * attempt));
       }
     }
   };
@@ -225,6 +283,12 @@ export default function RecitationScreen() {
   const close = () => router.back();
 
   const playbackProgress = playerStatus.duration > 0 ? playerStatus.currentTime / playerStatus.duration : 0;
+  // `playerStatus.duration`/`currentTime` are in seconds, not ms. Falls back
+  // to the known recorded duration before the player has finished loading
+  // metadata (duration momentarily reads 0), so the label never flashes 0:00.
+  const remainingMs = playerStatus.duration > 0
+    ? Math.max(0, (playerStatus.duration - playerStatus.currentTime) * 1000)
+    : recordedDurationMs;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top', 'bottom']}>
@@ -268,7 +332,7 @@ export default function RecitationScreen() {
                   allowFontScaling={false}
                   textBreakStrategy="simple"
                   style={{
-                    color: t.colors.text, fontSize: 26, lineHeight: Platform.OS === 'android' ? 60 : 48,
+                    color: t.colors.text, fontSize: 26, lineHeight: arabicLineHeightFor(26),
                     textAlign: 'center', writingDirection: 'rtl', fontFamily: arabicFontFamily,
                   }}
                 >
@@ -302,9 +366,9 @@ export default function RecitationScreen() {
                 {stage === 'recording' ? s.reciteRecording : s.reciteTapToRecord}
               </Text>
               {errorMsg && stage === 'idle' && (
-                <Text style={{ color: t.colors.danger, fontSize: 13, textAlign: 'center', marginTop: t.spacing(3), paddingHorizontal: t.spacing(4) }}>
-                  {errorMsg}
-                </Text>
+                <View style={{ marginTop: t.spacing(3), width: '100%' }}>
+                  <InlineNotice tone="danger" icon="alert-circle-outline" text={errorMsg} />
+                </View>
               )}
             </View>
           )}
@@ -316,7 +380,8 @@ export default function RecitationScreen() {
                   onPress={togglePlayback}
                   style={({ pressed }) => ({
                     width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: t.accent.primary, transform: [{ scale: pressed ? t.pressedScale : 1 }],
+                    backgroundColor: t.accent.primary,
+                    transform: [{ scale: pressed ? t.pressedScale : 1 }],
                   })}
                 >
                   <Ionicons name={playerStatus.playing ? 'pause' : 'play'} size={20} color={t.accent.onPrimary} />
@@ -325,17 +390,12 @@ export default function RecitationScreen() {
                   <View style={{ height: 6, width: `${Math.round(playbackProgress * 100)}%`, borderRadius: 3, backgroundColor: t.accent.primary }} />
                 </View>
                 <Text style={{ color: t.colors.textMuted, fontSize: 12, fontVariant: ['tabular-nums'] }}>
-                  {formatMs(recordedDurationMs)}
+                  {formatMs(remainingMs)}
                 </Text>
               </View>
 
-              {quietWarning && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
-                  <Ionicons name="warning-outline" size={16} color={t.colors.brass} />
-                  <Text style={{ color: t.colors.brass, fontSize: 13, flex: 1 }}>{s.reciteQuietWarning}</Text>
-                </View>
-              )}
-              {errorMsg && <Text style={{ color: t.colors.danger, fontSize: 13 }}>{errorMsg}</Text>}
+              {quietWarning && <InlineNotice tone="warning" icon="warning-outline" text={s.reciteQuietWarning} />}
+              {errorMsg && <InlineNotice tone="danger" icon="alert-circle-outline" text={errorMsg} />}
 
               <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>
                 <Button label={s.reciteTryAgain} variant="secondary" onPress={reRecord} style={{ flex: 1 }} />
@@ -367,12 +427,38 @@ export default function RecitationScreen() {
                     </Text>
                   </View>
 
+                  {feedback.issues.length > 0 && (
+                    <Card rounded="lg" style={{ gap: t.spacing(2) }}>
+                      <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700', letterSpacing: 0.6 }}>
+                        {s.reciteIssuesHeading.toUpperCase()}
+                      </Text>
+                      {feedback.issues.map((issue, i) => (
+                        <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: t.spacing(2) }}>
+                          <Ionicons name="alert-circle-outline" size={16} color={t.colors.danger} style={{ marginTop: 1 }} />
+                          <Text style={{ color: t.colors.text, fontSize: 14, lineHeight: 20, flex: 1 }}>{issue}</Text>
+                        </View>
+                      ))}
+                    </Card>
+                  )}
+
                   {feedback.words.length > 0 && (
                     <Card rounded="lg" style={{ gap: t.spacing(3) }}>
                       <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700', letterSpacing: 0.6 }}>
                         {s.reciteWordsHeading.toUpperCase()}
                       </Text>
-                      <Text style={{ writingDirection: 'rtl', textAlign: 'right', lineHeight: 44 }}>
+                      <Text
+                        allowFontScaling={false}
+                        textBreakStrategy="simple"
+                        style={{
+                          writingDirection: 'rtl', textAlign: 'right',
+                          // Shared with the reader (src/lib/quranText.ts) — the
+                          // underline/strikethrough this screen adds for
+                          // non-correct words needs extra room below the
+                          // baseline too, on top of the usual diacritic headroom.
+                          lineHeight: arabicLineHeightFor(24),
+                          paddingHorizontal: Platform.OS === 'android' ? t.spacing(2) : 0,
+                        }}
+                      >
                         {feedback.words.map((w, i) => (
                           <Fragment key={i}>
                             <WordFeedbackChip
@@ -399,12 +485,15 @@ export default function RecitationScreen() {
                   )}
 
                   <View style={{
-                    flexDirection: 'row', alignItems: 'center', gap: t.spacing(2), alignSelf: 'center',
-                    paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2), borderRadius: t.radius.pill,
+                    flexDirection: 'row', alignItems: 'flex-start', gap: t.spacing(2),
+                    alignSelf: 'stretch', maxWidth: '100%',
+                    paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(3), borderRadius: t.radius.lg,
                     backgroundColor: t.accent.primarySoft,
                   }}>
-                    <Ionicons name="sparkles" size={14} color={t.colors.brass} />
-                    <Text style={{ color: t.colors.success, fontWeight: '700', fontSize: 13 }}>{feedback.encouragement}</Text>
+                    <Ionicons name="sparkles" size={14} color={t.colors.brass} style={{ marginTop: 2 }} />
+                    <Text style={{ color: t.colors.success, fontWeight: '700', fontSize: 13, lineHeight: 19, flexShrink: 1 }}>
+                      {feedback.encouragement}
+                    </Text>
                   </View>
                 </>
               )}

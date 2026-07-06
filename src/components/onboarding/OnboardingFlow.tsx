@@ -14,7 +14,7 @@ import { GoalStep } from './GoalStep';
 import { NotificationStep } from './NotificationStep';
 import { FinishStep } from './FinishStep';
 
-// The three illustrated feature slides. Copy is stored as i18n keys and
+// The four illustrated feature slides. Copy is stored as i18n keys and
 // resolved inside FeatureStep so the whole walkthrough stays translatable.
 const FEATURES: FeatureConfig[] = [
   {
@@ -24,6 +24,15 @@ const FEATURES: FeatureConfig[] = [
       { icon: 'color-palette-outline', key: 'onbFeatReadB1' },
       { icon: 'language-outline', key: 'onbFeatReadB2' },
       { icon: 'search-outline', key: 'onbFeatReadB3' },
+    ],
+  },
+  {
+    icon: 'mic-outline',
+    eyebrowKey: 'onbFeatReciteEyebrow', titleKey: 'onbFeatReciteTitle', subtitleKey: 'onbFeatReciteSubtitle',
+    bullets: [
+      { icon: 'recording-outline', key: 'onbFeatReciteB1' },
+      { icon: 'checkmark-done-outline', key: 'onbFeatReciteB2' },
+      { icon: 'trending-up-outline', key: 'onbFeatReciteB3' },
     ],
   },
   {
@@ -46,7 +55,7 @@ const FEATURES: FeatureConfig[] = [
   },
 ];
 
-const TOTAL = 9; // welcome + 3 features + name + display + goal + notif + finish
+const TOTAL = 10; // welcome + 4 features + name + display + goal + notif + finish
 
 // First-run walkthrough controller. Owns the step index, the sliding
 // enter animation and the shared chrome (back / skip / progress); each step
@@ -83,10 +92,11 @@ export function OnboardingFlow() {
       case 1: return <FeatureStep feature={FEATURES[0]} nav={nav} />;
       case 2: return <FeatureStep feature={FEATURES[1]} nav={nav} />;
       case 3: return <FeatureStep feature={FEATURES[2]} nav={nav} />;
-      case 4: return <NameStep nav={nav} />;
-      case 5: return <DisplayStep nav={nav} />;
-      case 6: return <GoalStep nav={nav} />;
-      case 7: return <NotificationStep nav={nav} />;
+      case 4: return <FeatureStep feature={FEATURES[3]} nav={nav} />;
+      case 5: return <NameStep nav={nav} />;
+      case 6: return <DisplayStep nav={nav} />;
+      case 7: return <GoalStep nav={nav} />;
+      case 8: return <NotificationStep nav={nav} />;
       default: return <FinishStep nav={nav} />;
     }
   };

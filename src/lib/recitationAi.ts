@@ -27,6 +27,11 @@ export interface RecitationFeedback {
   recognizedSpeech: boolean;
   accuracyScore: number;
   summary: string;
+  // Concrete, specific mistakes worth calling out — empty when the
+  // recitation had none. Surfaced as its own "what to work on" section so
+  // the user sees exactly what went wrong without having to tap through
+  // every word/rule individually.
+  issues: string[];
   words: WordFeedback[];
   tajweedNotes: TajweedNote[];
   encouragement: string;
@@ -45,13 +50,14 @@ const SYSTEM_PROMPT = [
   'Tone:',
   '- Be warm, encouraging, and specific — like a beloved teacher, never harsh or discouraging.',
   '- Praise what was done well before noting what to improve.',
-  '- Keep `note` fields short (one sentence) and actionable.',
+  '- Never be vague. Every non-correct word/rule and every entry in `issues` must name the SPECIFIC thing that was wrong and how to fix it (e.g. "The qalqalah bounce on the ق in this word was too soft — let it bounce more clearly" rather than just "needs work" or "try again").',
   '',
   'Output: return STRICT JSON matching the supplied responseSchema. No prose outside the JSON.',
   '- `accuracyScore` is an integer 0-100 reflecting overall pronunciation + tajweed accuracy.',
-  '- `summary` is 1-2 sentences giving the overall verdict.',
+  '- `summary` is 1-2 sentences giving the overall verdict. If there were mistakes, name the single most important one here too, not just a generic score comment.',
+  '- `issues`: a prioritized list (most important first, at most 5) of the SPECIFIC mistakes found, each one concrete and actionable sentence covering pronunciation and/or tajweed. Empty array ONLY if the recitation was fully correct.',
   '- `encouragement` is one short, warm closing sentence (may reference the effort of practicing recitation).',
-  '- Only include a `note` for a word/rule when its status is not the fully-correct/applied state.',
+  '- Only include a `note` for a word/rule when its status is not the fully-correct/applied state, and make that note specific per the tone rules above.',
 ].join('\n');
 
 const RESPONSE_SCHEMA = {
@@ -60,6 +66,7 @@ const RESPONSE_SCHEMA = {
     recognizedSpeech: { type: 'BOOLEAN' },
     accuracyScore: { type: 'INTEGER' },
     summary: { type: 'STRING' },
+    issues: { type: 'ARRAY', items: { type: 'STRING' } },
     words: {
       type: 'ARRAY',
       items: {
@@ -86,7 +93,7 @@ const RESPONSE_SCHEMA = {
     },
     encouragement: { type: 'STRING' },
   },
-  required: ['recognizedSpeech', 'accuracyScore', 'summary', 'words', 'tajweedNotes', 'encouragement'],
+  required: ['recognizedSpeech', 'accuracyScore', 'summary', 'issues', 'words', 'tajweedNotes', 'encouragement'],
 } as const;
 
 const WORD_STATUSES: WordStatus[] = ['correct', 'mispronounced', 'missed', 'unclear'];
@@ -149,10 +156,15 @@ export async function getRecitationFeedback(
         }))
     : [];
 
+  const issues: string[] = Array.isArray(parsed.issues)
+    ? parsed.issues.filter((i: any) => typeof i === 'string' && i.trim()).map((i: string) => i.trim()).slice(0, 5)
+    : [];
+
   return {
     recognizedSpeech: !!parsed.recognizedSpeech,
     accuracyScore: Math.max(0, Math.min(100, Math.round(Number(parsed.accuracyScore) || 0))),
     summary: String(parsed.summary ?? '').trim(),
+    issues,
     words,
     tajweedNotes,
     encouragement: String(parsed.encouragement ?? '').trim(),
