@@ -18,6 +18,7 @@ import { AyahMarker } from '@/components/AyahMarker';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { GlassDock } from '@/components/GlassDock';
 import { DailyGoalBadge } from '@/components/DailyGoalBadge';
+import { VerseAudioListen } from '@/components/VerseAudioListen';
 import { useTodayStats, useBestRecitationScore } from '@/store/selectors';
 
 // Standard Bismillah, shown as an opener for ayah 1 of every surah except
@@ -421,6 +422,14 @@ export default function VerseReader() {
                 <AyahMarker number={current.numberInSurah} size={32} />
                 <View style={{ flex: 1, height: 0.75, backgroundColor: t.colors.hairline }} />
               </View>
+            )}
+
+            {current && (
+              <VerseAudioListen
+                surah={surahNumber}
+                ayah={current.numberInSurah}
+                reciterId={settings.reciterId}
+              />
             )}
             </View>
           </View>

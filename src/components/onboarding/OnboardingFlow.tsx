@@ -30,9 +30,9 @@ const FEATURES: FeatureConfig[] = [
     icon: 'mic-outline',
     eyebrowKey: 'onbFeatReciteEyebrow', titleKey: 'onbFeatReciteTitle', subtitleKey: 'onbFeatReciteSubtitle',
     bullets: [
-      { icon: 'recording-outline', key: 'onbFeatReciteB1' },
-      { icon: 'checkmark-done-outline', key: 'onbFeatReciteB2' },
-      { icon: 'trending-up-outline', key: 'onbFeatReciteB3' },
+      { icon: 'headset-outline', key: 'onbFeatReciteB1' },
+      { icon: 'recording-outline', key: 'onbFeatReciteB2' },
+      { icon: 'checkmark-done-outline', key: 'onbFeatReciteB3' },
     ],
   },
   {

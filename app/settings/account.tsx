@@ -8,6 +8,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { useAppStore, type AppLanguage } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { TRANSLATIONS } from '@/data/translations';
+import { RECITERS } from '@/data/quranAudio';
 import { ToggleRow, SettingsRow, SettingsSection, SettingsGroup } from '@/components/SettingsRow';
 import { TimePickerSheet } from '@/components/TimePickerSheet';
 import { requestNotificationPermission } from '@/lib/notifications';
@@ -58,6 +59,7 @@ export default function AccountSettings() {
 
   const currentTrans = TRANSLATIONS.find(x => x.id === settings.translationId);
   const scriptLabel = s[SCRIPT_LABEL_KEY[settings.arabicScript]];
+  const reciterLabel = RECITERS.find(r => r.id === settings.reciterId)?.name ?? settings.reciterId;
   const languageLabel =
     settings.language === 'ar' ? s.langArabic
     : settings.language === 'fr' ? s.langFrench
@@ -174,7 +176,8 @@ export default function AccountSettings() {
         <SettingsGroup>
           <SettingsRow
             icon="document-text-outline"
-            label={s.quranScript}
+            label={s.quranDisplay}
+            description={`${s.settingsReciter}: ${reciterLabel}`}
             value={scriptLabel}
             onPress={() => router.push('/settings/quran-display')}
           />
