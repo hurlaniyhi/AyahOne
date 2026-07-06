@@ -8,7 +8,7 @@ import {
   type ArabicScript,
 } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
-import { arabicFontFor } from '@/lib/quranText';
+import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { FontSizeSlider } from '@/components/FontSizeSlider';
 import { SettingsSection } from '@/components/SettingsRow';
@@ -99,10 +99,7 @@ export default function QuranDisplayScreen() {
               textBreakStrategy="simple"
               style={{
                 color: t.colors.text, fontSize: previewSize,
-                // Android renders Arabic with tighter line metrics than iOS;
-                // bump the leading slightly so diacritics aren't cropped by
-                // the line box.
-                lineHeight: Math.round(previewSize * (Platform.OS === 'android' ? 2 : 1.8)),
+                lineHeight: arabicLineHeightFor(previewSize),
                 textAlign: 'center', writingDirection: 'rtl',
                 fontFamily: arabicFontFor(settings.arabicScript),
                 alignSelf: 'stretch',
@@ -180,7 +177,7 @@ export default function QuranDisplayScreen() {
                   textBreakStrategy="simple"
                   style={{
                     color: t.colors.text, fontSize: 22,
-                    lineHeight: Platform.OS === 'android' ? 44 : undefined,
+                    lineHeight: arabicLineHeightFor(22),
                     textAlign: 'right', writingDirection: 'rtl',
                     fontFamily: arabicFontFor(opt.id),
                     // Trailing/leading gutter so the first/last cursive glyph

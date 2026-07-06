@@ -11,14 +11,14 @@ import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
-import { arabicFontFor } from '@/lib/quranText';
+import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
 import { IconButton } from '@/components/Button';
 import { AyahMarker } from '@/components/AyahMarker';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { GlassDock } from '@/components/GlassDock';
 import { DailyGoalBadge } from '@/components/DailyGoalBadge';
-import { useTodayStats } from '@/store/selectors';
+import { useTodayStats, useBestRecitationScore } from '@/store/selectors';
 
 // Standard Bismillah, shown as an opener for ayah 1 of every surah except
 // Al-Fatihah (1) where it is itself the first ayah, and At-Tawbah (9).
@@ -131,6 +131,7 @@ export default function VerseReader() {
   }, [surahNumber, surahMeta.englishName, transitionOpacity]);
 
   const current = ayahs?.[idx];
+  const bestRecitationScore = useBestRecitationScore(surahNumber, current?.numberInSurah ?? idx + 1);
 
   // Grow per-surah furthest progress on every view (drives the Friday Al-Kahf
   // banner regardless of how the user entered the reader). Only the
@@ -164,11 +165,7 @@ export default function VerseReader() {
 
   // `arabicFontSize` is now a continuous px value driven by the settings slider.
   const arabicSize = settings.arabicFontSize;
-  // Android renders Arabic with tighter line metrics than iOS and clips
-  // letter descenders (notably the bowls of ب ت ث ن ي) when lineHeight is
-  // too snug; the 2.5× multiplier leaves enough room for both descenders
-  // and diacritics that sit above the baseline.
-  const arabicLineHeight = Math.round(arabicSize * (Platform.OS === 'android' ? 2.5 : 2));
+  const arabicLineHeight = arabicLineHeightFor(arabicSize);
   // Small inner gutter on Android keeps the rightmost cursive overhang of
   // initial-form letters (notably ب in بِأَيْدِيكُمْ) clear of the card's inner
   // edge. The card itself is structured below so that borderRadius and
@@ -348,6 +345,16 @@ export default function VerseReader() {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: t.spacing(4) }}>
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => current && router.push(`/recite/${surahNumber}?ayah=${current.numberInSurah}`)}
+                >
+                  <Ionicons
+                    name={bestRecitationScore != null ? 'mic' : 'mic-outline'}
+                    size={22}
+                    color={bestRecitationScore != null ? t.accent.primary : t.colors.textMuted}
+                  />
+                </Pressable>
                 <Pressable hitSlop={10} onPress={() => current && toggleFavorite(surahNumber, current.numberInSurah)}>
                   <Ionicons name={isFav ? 'heart' : 'heart-outline'} size={22} color={isFav ? t.colors.danger : t.colors.textMuted} />
                 </Pressable>
@@ -367,7 +374,7 @@ export default function VerseReader() {
                 style={{
                   color: t.colors.brass,
                   fontSize: Math.round(arabicSize * 0.85),
-                  lineHeight: Math.round(arabicSize * (Platform.OS === 'android' ? 2.1 : 1.6)),
+                  lineHeight: arabicLineHeightFor(Math.round(arabicSize * 0.85)),
                   textAlign: 'center', writingDirection: 'rtl',
                   fontFamily: arabicFontFor(settings.arabicScript),
                   marginBottom: t.spacing(1),

@@ -8,6 +8,9 @@ import type { AskMsg } from '@/lib/islamicAi';
 // enough that AsyncStorage stays under its per-key budget even when each
 // model reply carries several references.
 const ASK_HISTORY_CAP = 60;
+// Cap on persisted recitation-practice attempts — enough to derive a
+// meaningful "best score" per ayah without unbounded storage growth.
+const RECITATION_HISTORY_CAP = 100;
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type AppLanguage = 'en' | 'ar' | 'fr';
@@ -63,6 +66,16 @@ export interface Stats {
 export interface ReadingLocation {
   surah: number;
   ayah: number;
+}
+
+// One completed "Practice Recitation" attempt, recorded after the user gets
+// AI feedback on a spoken recitation of a specific ayah.
+export interface RecitationAttempt {
+  id: string;
+  surah: number;
+  ayah: number;
+  score: number;
+  date: string; // ISO timestamp
 }
 
 export interface PrecacheState {
@@ -124,6 +137,9 @@ export interface AppState {
   // Timestamp (ms) of the last accepted send. Used by the screen to enforce
   // a small cooldown that prevents accidental double-sends.
   askLastSendAt: number;
+  // "Practice Recitation" attempt log, most recent last. Capped to
+  // RECITATION_HISTORY_CAP on every append.
+  recitationHistory: RecitationAttempt[];
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
@@ -145,6 +161,7 @@ export interface AppState {
   clearAskHistory: () => void;
   setAskSending: (v: boolean) => void;
   setAskLastSendAt: (t: number) => void;
+  addRecitationAttempt: (attempt: RecitationAttempt) => void;
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
@@ -191,6 +208,7 @@ const DEFAULT_STATE = {
   askHistory: [] as AskMsg[],
   askSending: false,
   askLastSendAt: 0,
+  recitationHistory: [] as RecitationAttempt[],
 };
 
 function addTo(target: BucketStats, h: number, t: number, p: number) {
@@ -218,6 +236,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       // Strip pending model bubbles before persisting — they represent an
       // in-flight request that can no longer be resolved across reloads.
       askHistory: state.askHistory.filter(m => !m.pending),
+      recitationHistory: state.recitationHistory,
     });
     await AsyncStorage.setItem(STORAGE_KEY, data);
   } catch {
@@ -229,7 +248,8 @@ type Actions = Pick<AppState,
   'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'completeOnboarding' | 'setLastRead' | 'setDailyGoal' |
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
   'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
-  'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt'>;
+  'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt' |
+  'addRecitationAttempt'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
@@ -371,6 +391,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setAskSending: (v) => set({ askSending: v }),
   setAskLastSendAt: (t) => set({ askLastSendAt: t }),
+  addRecitationAttempt: (attempt) => {
+    set(s => {
+      const next = [...s.recitationHistory, attempt];
+      const trimmed = next.length > RECITATION_HISTORY_CAP ? next.slice(next.length - RECITATION_HISTORY_CAP) : next;
+      return { recitationHistory: trimmed };
+    });
+    void persist(get());
+  },
 }));
 
 export async function hydrateAppStore(): Promise<void> {
@@ -412,6 +440,7 @@ export async function hydrateAppStore(): Promise<void> {
         lastKahfCelebrationDate: data.lastKahfCelebrationDate ?? '',
         // Strip pending messages on hydrate — they can never resolve now.
         askHistory: Array.isArray(data.askHistory) ? data.askHistory.filter((m: AskMsg) => !m.pending) : [],
+        recitationHistory: Array.isArray(data.recitationHistory) ? data.recitationHistory : [],
       });
     }
   } finally {

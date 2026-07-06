@@ -138,6 +138,13 @@ export function hasApiKey(): boolean {
   return !!process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 }
 
+// A single content part sent to Gemini: either plain text, or inline binary
+// data (base64) with its mime type — e.g. an audio recording for the
+// recitation-feedback feature. Mirrors the subset of Gemini's `Part` union
+// this app actually sends.
+export type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+export interface GeminiContent { role: 'user' | 'model'; parts: GeminiPart[]; }
+
 // Statuses where Gemini's docs explicitly recommend client-side retry:
 // 429 (quota), 500/502/504 (gateway), 503 (model overloaded).
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
@@ -153,13 +160,21 @@ export const __retryConfig = {
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
+// Low-level Gemini call shared by every AI feature in the app: walks the
+// model fallback ladder, retries transient failures with backoff, and
+// returns the parsed JSON body (shape depends on the caller's responseSchema).
+// Callers are responsible for coercing the result into their own type.
+export async function callGeminiJson(opts: {
+  systemPrompt: string;
+  contents: GeminiContent[];
+  responseSchema: object;
+}): Promise<any> {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   if (!apiKey) throw new IslamicAiError('Missing EXPO_PUBLIC_GEMINI_API_KEY', 'no-key');
 
   const bodyFor = (model: ModelSpec) => ({
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: history.map(turn => ({ role: turn.role, parts: [{ text: turn.text }] })),
+    systemInstruction: { parts: [{ text: opts.systemPrompt }] },
+    contents: opts.contents,
     generationConfig: {
       temperature: 0.3,
       topP: 0.9,
@@ -173,7 +188,7 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
       // budget is exhausted \u2014 so we want as much headroom as the model allows.
       maxOutputTokens: 8192,
       responseMimeType: 'application/json',
-      responseSchema: RESPONSE_SCHEMA,
+      responseSchema: opts.responseSchema,
     },
   });
 
@@ -222,7 +237,7 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
       // outer JSON well-formed but silently truncates string fields, so parsing
       // succeeds while the visible answer is cut off mid-sentence. We surface
       // it as a parse error in both the "no text at all" and "text present but
-      // budget exhausted" branches so the UI can prompt the user to retry.
+      // budget exhausted" branches so the caller can prompt the user to retry.
       if (finishReason === 'MAX_TOKENS') {
         throw new IslamicAiError('Response truncated (MAX_TOKENS). Try a more specific question.', 'parse');
       }
@@ -232,13 +247,7 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
         // fences despite `responseMimeType: application/json`. Strip them so
         // we don't fail on otherwise-valid JSON.
         const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-        const parsed = JSON.parse(cleaned) as AskAnswer;
-        return {
-          inScope:    !!parsed.inScope,
-          answer:     String(parsed.answer ?? '').trim(),
-          references: Array.isArray(parsed.references) ? parsed.references : [],
-          opinions:   Array.isArray(parsed.opinions) ? parsed.opinions : [],
-        };
+        return JSON.parse(cleaned);
       } catch {
         // Include a snippet so the error subtitle in the UI shows roughly where
         // parsing failed (helps catch future schema drifts).
@@ -249,4 +258,18 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
     // All retries on this model exhausted; loop continues to the next model.
   }
   throw lastError ?? new IslamicAiError('Request failed', 'network');
+}
+
+export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
+  const parsed = await callGeminiJson({
+    systemPrompt: SYSTEM_PROMPT,
+    contents: history.map(turn => ({ role: turn.role, parts: [{ text: turn.text }] })),
+    responseSchema: RESPONSE_SCHEMA,
+  });
+  return {
+    inScope:    !!parsed.inScope,
+    answer:     String(parsed.answer ?? '').trim(),
+    references: Array.isArray(parsed.references) ? parsed.references : [],
+    opinions:   Array.isArray(parsed.opinions) ? parsed.opinions : [],
+  };
 }

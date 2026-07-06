@@ -87,3 +87,19 @@ export function useWeekdaySeries(metric: keyof BucketStats): number[] {
   const daily = useAppStore(s => s.stats.daily);
   return useMemo(() => weekdaySeriesFor(daily, metric, new Date()), [daily, metric]);
 }
+
+/**
+ * Best "Practice Recitation" score ever recorded for a given ayah, or `null`
+ * if it has never been practiced. Drives the "practiced" tint on the mic
+ * entry-point icon in the reader.
+ */
+export function useBestRecitationScore(surah: number, ayah: number): number | null {
+  const history = useAppStore(s => s.recitationHistory);
+  return useMemo(() => {
+    let best: number | null = null;
+    for (const a of history) {
+      if (a.surah === surah && a.ayah === ayah && (best === null || a.score > best)) best = a.score;
+    }
+    return best;
+  }, [history, surah, ayah]);
+}
