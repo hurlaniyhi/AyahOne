@@ -18,7 +18,13 @@
           "photosPermission": "Allow AyahOne to access your photos so you can set a profile picture."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow AyahOne to access your microphone so you can practice reciting and receive feedback."
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,

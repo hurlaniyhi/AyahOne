@@ -18,7 +18,7 @@ import { AyahMarker } from '@/components/AyahMarker';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { GlassDock } from '@/components/GlassDock';
 import { DailyGoalBadge } from '@/components/DailyGoalBadge';
-import { useTodayStats } from '@/store/selectors';
+import { useTodayStats, useBestRecitationScore } from '@/store/selectors';
 
 // Standard Bismillah, shown as an opener for ayah 1 of every surah except
 // Al-Fatihah (1) where it is itself the first ayah, and At-Tawbah (9).
@@ -131,6 +131,7 @@ export default function VerseReader() {
   }, [surahNumber, surahMeta.englishName, transitionOpacity]);
 
   const current = ayahs?.[idx];
+  const bestRecitationScore = useBestRecitationScore(surahNumber, current?.numberInSurah ?? idx + 1);
 
   // Grow per-surah furthest progress on every view (drives the Friday Al-Kahf
   // banner regardless of how the user entered the reader). Only the
@@ -348,6 +349,16 @@ export default function VerseReader() {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: t.spacing(4) }}>
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => current && router.push(`/recite/${surahNumber}?ayah=${current.numberInSurah}`)}
+                >
+                  <Ionicons
+                    name={bestRecitationScore != null ? 'mic' : 'mic-outline'}
+                    size={22}
+                    color={bestRecitationScore != null ? t.accent.primary : t.colors.textMuted}
+                  />
+                </Pressable>
                 <Pressable hitSlop={10} onPress={() => current && toggleFavorite(surahNumber, current.numberInSurah)}>
                   <Ionicons name={isFav ? 'heart' : 'heart-outline'} size={22} color={isFav ? t.colors.danger : t.colors.textMuted} />
                 </Pressable>
