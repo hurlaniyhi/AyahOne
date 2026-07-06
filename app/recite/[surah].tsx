@@ -16,12 +16,14 @@ import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
+import { useTogglePlayback } from '@/lib/useTogglePlayback';
 import {
   getRecitationFeedback, tajweedRulesIn, IslamicAiError,
   type RecitationFeedback, type WordFeedback,
 } from '@/lib/recitationAi';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { InlineNotice } from '@/components/InlineNotice';
 import { RecordButton, formatMs } from '@/components/recitation/RecordButton';
 import { ScoreGauge } from '@/components/recitation/ScoreGauge';
 import { WordFeedbackChip } from '@/components/recitation/WordFeedbackChip';
@@ -39,25 +41,6 @@ const MAX_RECORDING_SECONDS = 90;
 // accessory's mic route isn't actually picking up the voice well). Warn
 // proactively rather than only discovering this after a slow AI round trip.
 const QUIET_PEAK_DBFS = -45;
-
-// Friendly banner for both the quiet-recording nudge and error states — never
-// surfaces raw native/JS error text, just a calm, actionable message that
-// matches the rest of the screen's visual language.
-function InlineNotice({ tone, icon, text }: { tone: 'warning' | 'danger'; icon: keyof typeof Ionicons.glyphMap; text: string }) {
-  const t = useTheme();
-  const color = tone === 'danger' ? t.colors.danger : t.colors.brass;
-  return (
-    <View style={{
-      flexDirection: 'row', alignItems: 'flex-start', gap: t.spacing(2),
-      paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(3),
-      borderRadius: t.radius.md, backgroundColor: t.colors.surfaceMuted,
-      borderLeftWidth: 3, borderLeftColor: color,
-    }}>
-      <Ionicons name={icon} size={16} color={color} style={{ marginTop: 1 }} />
-      <Text style={{ color: t.colors.text, fontSize: 13, lineHeight: 19, flex: 1 }}>{text}</Text>
-    </View>
-  );
-}
 
 export default function RecitationScreen() {
   const t = useTheme();
@@ -248,36 +231,10 @@ export default function RecitationScreen() {
     setStage('idle');
   };
 
-  // Pause/resume toggle: tapping while playing pauses; tapping while paused
-  // resumes from exactly where playback left off. Only seeks back to the
-  // start once a take has genuinely finished playing all the way through.
-  const togglePlayback = async () => {
-    if (playerStatus.playing) {
-      player.pause();
-      return;
-    }
+  const toggleAudio = useTogglePlayback(player, playerStatus, () => setErrorMsg(s.recitePlaybackError));
+  const togglePlayback = () => {
     setErrorMsg(null);
-    const finished = playerStatus.didJustFinish
-      || (playerStatus.duration > 0 && playerStatus.currentTime >= playerStatus.duration);
-    // `play()` activates the shared AVAudioSession under the hood, which can
-    // hit the same transient "Session activation failed" race as recording
-    // does while a Bluetooth accessory's audio route is still settling —
-    // retry with backoff instead of failing silently.
-    const ATTEMPTS = 4;
-    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-      try {
-        if (finished) await player.seekTo(0);
-        player.play();
-        return;
-      } catch {
-        if (attempt === ATTEMPTS) {
-          // Never surface the raw native/JS error text to the user.
-          setErrorMsg(s.recitePlaybackError);
-          return;
-        }
-        await new Promise(r => setTimeout(r, 350 * attempt));
-      }
-    }
+    void toggleAudio();
   };
 
   const close = () => router.back();

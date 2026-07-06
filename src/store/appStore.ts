@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
 import type { AskMsg } from '@/lib/islamicAi';
+import { DEFAULT_RECITER_ID } from '@/data/quranAudio';
 
 // Cap on persisted chat history — generous enough for normal use, small
 // enough that AsyncStorage stays under its per-key budget even when each
@@ -28,6 +29,8 @@ export interface Settings {
   language: AppLanguage;
   translationId: string;
   arabicScript: ArabicScript;
+  // alquran.cloud audio-edition id used for verse playback (see src/data/quranAudio.ts).
+  reciterId: string;
   // Arabic body font size in px (continuous, clamped to ARABIC_FONT_MIN/MAX).
   arabicFontSize: number;
   showTranslation: boolean;
@@ -177,6 +180,7 @@ const DEFAULT_SETTINGS: Settings = {
   accent: 'mihrab',
   language: 'en',
   translationId: 'en.sahih',
+  reciterId: DEFAULT_RECITER_ID,
   arabicScript: 'uthmani',
   arabicFontSize: ARABIC_FONT_DEFAULT,
   showTranslation: true,

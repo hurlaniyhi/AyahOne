@@ -1,7 +1,8 @@
-import React from 'react';
-import { Platform, ScrollView, View, Text, Pressable } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Platform, ScrollView, View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useTheme } from '@/theme/ThemeProvider';
 import {
   useAppStore,
@@ -9,14 +10,22 @@ import {
 } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
+import { getAyahAudioUrl, RECITERS } from '@/data/quranAudio';
+import { useTogglePlayback } from '@/lib/useTogglePlayback';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { FontSizeSlider } from '@/components/FontSizeSlider';
+import { InlineNotice } from '@/components/InlineNotice';
 import { SettingsSection } from '@/components/SettingsRow';
 import {
   TAJWEED_COLORS,
   TAJWEED_LABELS,
   TAJWEED_LEGEND_ORDER,
 } from '@/lib/tajweed';
+
+// Sample ayah used to audition each reciter's voice — Al-Fatihah's opener,
+// short and universally recognisable.
+const PREVIEW_SURAH = 1;
+const PREVIEW_AYAH = 1;
 
 // Bismillah rendered in both editions; system Arabic font is shared but the
 // underlying character set differs (hamzat-wasl, sukun glyphs, etc.).
@@ -55,25 +64,62 @@ export default function QuranDisplayScreen() {
     { id: 'tajweed', label: s.scriptTajweed },
   ];
 
+  // Reciter audition: a single shared player for all cards — tapping a
+  // different card's preview button swaps the source and plays that one.
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingReciterId, setLoadingReciterId] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const previewPlayer = useAudioPlayer(previewUrl);
+  const previewStatus = useAudioPlayerStatus(previewPlayer);
+  const togglePreview = useTogglePlayback(previewPlayer, previewStatus, () => setPreviewError(true));
+
+  useEffect(() => {
+    if (previewUrl) void togglePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewUrl]);
+
+  const handlePreview = async (reciterId: string) => {
+    if (previewingId === reciterId && previewUrl) {
+      void togglePreview();
+      return;
+    }
+    setPreviewError(false);
+    setLoadingReciterId(reciterId);
+    try {
+      const url = await getAyahAudioUrl(PREVIEW_SURAH, PREVIEW_AYAH, reciterId);
+      setPreviewingId(reciterId);
+      setPreviewUrl(url);
+    } catch {
+      setPreviewError(true);
+    } finally {
+      setLoadingReciterId(null);
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['bottom']}>
       <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
         {/* Live preview — surfaceElevated card with brass arabesque corners
             so the Bismillah feels like a mushaf page rather than a swatch.
-            The arabesque decorations and the Arabic text live in separate
-            sub-layers: only the decoration layer is clipped to the card's
-            rounded shape, so the text layer above is free to render full
-            cursive overhangs — Android otherwise crops side-bearings of
-            terminal glyphs against the card edge. */}
-        <View style={{
-          borderRadius: t.radius.lg,
-          backgroundColor: t.colors.surfaceElevated,
-          borderWidth: 0.75, borderColor: t.colors.hairline,
-          shadowColor: '#000',
-          shadowOpacity: t.mode === 'dark' ? 0.35 : 0.06,
-          shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
-          elevation: 3,
-        }}>
+            Background/shadow, decorations, and the Arabic text each live on
+            their own layer (same structure as the reader's verse card, see
+            app/read/[surah].tsx): only the empty background layer carries
+            borderRadius + elevation. On Android, a View with both set
+            directly clips ITS CHILDREN to the rounded outline (clipToOutline)
+            — since real content never lives on that layer, tall diacritics
+            and cursive overhangs on the text layer above are never clipped. */}
+        <View>
+          <View pointerEvents="none" style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            borderRadius: t.radius.lg,
+            backgroundColor: t.colors.surfaceElevated,
+            borderWidth: 0.75, borderColor: t.colors.hairline,
+            shadowColor: '#000',
+            shadowOpacity: t.mode === 'dark' ? 0.35 : 0.06,
+            shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+            elevation: 3,
+          }} />
           <View pointerEvents="none" style={{
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
             borderRadius: t.radius.lg,
@@ -196,6 +242,65 @@ export default function QuranDisplayScreen() {
               </Pressable>
             );
           })}
+        </View>
+
+        {/* Reciter — same vertical-card pattern as the script picker, with a
+            circular preview button so the user can audition a voice before
+            committing. Only one preview plays at a time (shared player). */}
+        <SettingsSection title={s.settingsReciter} description={s.settingsReciterDescription} />
+        <View style={{ gap: t.spacing(2) }}>
+          {RECITERS.map(reciter => {
+            const active = settings.reciterId === reciter.id;
+            const isPreviewing = previewingId === reciter.id;
+            const isLoading = loadingReciterId === reciter.id;
+            return (
+              <Pressable
+                key={reciter.id}
+                onPress={() => setSetting('reciterId', reciter.id)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: t.spacing(3),
+                  padding: t.spacing(4), borderRadius: t.radius.lg,
+                  backgroundColor: t.colors.surface,
+                  borderWidth: active ? 1.5 : 0.75,
+                  borderColor: active ? t.accent.primary : t.colors.hairline,
+                }}
+              >
+                <Pressable
+                  onPress={() => handlePreview(reciter.id)}
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: t.colors.surfaceMuted,
+                    transform: [{ scale: pressed ? t.pressedScale : 1 }],
+                  })}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color={t.accent.primary} />
+                  ) : (
+                    <Ionicons
+                      name={isPreviewing && previewStatus.playing ? 'pause' : 'play'}
+                      size={16}
+                      color={t.accent.primary}
+                    />
+                  )}
+                </Pressable>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: active ? t.accent.primary : t.colors.text, fontWeight: '700', fontSize: 15 }}>
+                    {reciter.name}
+                  </Text>
+                  <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{reciter.style}</Text>
+                </View>
+
+                {active ? (
+                  <Ionicons name="checkmark-circle" size={22} color={t.accent.primary} />
+                ) : (
+                  <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: t.colors.border }} />
+                )}
+              </Pressable>
+            );
+          })}
+          {previewError && <InlineNotice tone="danger" icon="alert-circle-outline" text={s.audioError} />}
         </View>
 
         {/* Tajweed legend — only shown while the tajweed script is active.
