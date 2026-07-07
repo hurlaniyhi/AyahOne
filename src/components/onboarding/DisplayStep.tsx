@@ -1,10 +1,10 @@
 import React from 'react';
-import { View, Text, Pressable, ScrollView, Platform } from 'react-native';
+import { View, Text, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { useAppStore, type ArabicScript } from '@/store/appStore';
-import { arabicFontFor } from '@/lib/quranText';
+import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { Button } from '@/components/Button';
 import { FontSizeSlider } from '@/components/FontSizeSlider';
 import { ToggleRow } from '@/components/SettingsRow';
@@ -64,7 +64,8 @@ export function DisplayStep({ nav }: { nav: OnbNav }) {
                     numberOfLines={1}
                     style={{
                       color: t.colors.text, fontSize: 18,
-                      lineHeight: Platform.OS === 'android' ? 34 : undefined,
+                      lineHeight: arabicLineHeightFor(18),
+                      paddingVertical: t.spacing(1),
                       writingDirection: 'rtl', fontFamily: arabicFontFor(opt.id),
                     }}
                   >

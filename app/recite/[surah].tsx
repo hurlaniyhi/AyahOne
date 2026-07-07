@@ -291,6 +291,8 @@ export default function RecitationScreen() {
                   style={{
                     color: t.colors.text, fontSize: 26, lineHeight: arabicLineHeightFor(26),
                     textAlign: 'center', writingDirection: 'rtl', fontFamily: arabicFontFamily,
+                    paddingHorizontal: t.spacing(Platform.OS === 'android' ? 3 : 2),
+                    paddingVertical: t.spacing(1.5),
                   }}
                 >
                   {tajweedSegments
@@ -413,7 +415,8 @@ export default function RecitationScreen() {
                           // non-correct words needs extra room below the
                           // baseline too, on top of the usual diacritic headroom.
                           lineHeight: arabicLineHeightFor(24),
-                          paddingHorizontal: Platform.OS === 'android' ? t.spacing(2) : 0,
+                          paddingHorizontal: t.spacing(Platform.OS === 'android' ? 2 : 1.5),
+                          paddingVertical: t.spacing(1),
                         }}
                       >
                         {feedback.words.map((w, i) => (

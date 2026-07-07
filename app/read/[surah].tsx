@@ -167,13 +167,20 @@ export default function VerseReader() {
   // `arabicFontSize` is now a continuous px value driven by the settings slider.
   const arabicSize = settings.arabicFontSize;
   const arabicLineHeight = arabicLineHeightFor(arabicSize);
-  // Small inner gutter on Android keeps the rightmost cursive overhang of
-  // initial-form letters (notably ب in بِأَيْدِيكُمْ) clear of the card's inner
-  // edge. The card itself is structured below so that borderRadius and
-  // elevation live on a separate background layer — that way the content
-  // View has no rounded outline, and Android's clipToOutline cannot crop
-  // text glyphs against the card's corner path.
-  const arabicGutter = t.spacing(Platform.OS === 'android' ? 2 : 0);
+  // Inner gutter keeps the leading/trailing cursive overhang of terminal
+  // glyphs (notably ب in بِأَيْدِيكُمْ) clear of the card's inner edge — on both
+  // platforms now, not just Android; IndoPak's Scheherazade New font in
+  // particular has wider side-bearings than Amiri Quran and can clip against
+  // zero gutter on iOS too. The card itself is structured below so that
+  // borderRadius and elevation live on a separate background layer — that
+  // way the content View has no rounded outline, and Android's
+  // clipToOutline cannot crop text glyphs against the card's corner path.
+  const arabicGutter = t.spacing(Platform.OS === 'android' ? 3 : 2);
+  // Extra hard vertical clearance on top of the lineHeight-based leading —
+  // protects against diacritic stacks (shadda + tanween/madda, hamzat-wasl)
+  // whose rendered ascent can exceed what the font's own metrics report,
+  // which a lineHeight multiplier alone can't fully guarantee.
+  const arabicVerticalPad = t.spacing(1.5);
 
   // The Bismillah opener is shown above ayah 1 for every surah except
   // Al-Fatihah (1, where it IS ayah 1) and At-Tawbah (9, where it is absent).
@@ -380,6 +387,7 @@ export default function VerseReader() {
                   fontFamily: arabicFontFor(settings.arabicScript),
                   marginBottom: t.spacing(1),
                   paddingHorizontal: arabicGutter,
+                  paddingVertical: arabicVerticalPad,
                 }}>
                 {BISMILLAH}
               </Text>
@@ -394,6 +402,7 @@ export default function VerseReader() {
                   textAlign: 'center', writingDirection: 'rtl',
                   fontFamily: arabicFontFor(settings.arabicScript),
                   paddingHorizontal: arabicGutter,
+                  paddingVertical: arabicVerticalPad,
                 }}>
                 {tajweedSegments
                   ? // Plain segments are emitted as raw string children so they

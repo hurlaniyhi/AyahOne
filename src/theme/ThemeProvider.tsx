@@ -28,8 +28,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const themePref = useAppStore(s => s.settings.themeMode);
   const accentId = useAppStore(s => s.settings.accent);
 
+  // `useColorScheme()` can report `null` (not just 'light'/'dark') — briefly
+  // on some platforms before the native side reports the real value, and
+  // persistently on others (some Android OEM skins, certain Expo Go
+  // configs). Treating anything non-'light' as dark meant those users saw
+  // the app locked into dark mode even on a light-mode phone. Only an
+  // explicit 'dark' report should produce dark; everything else falls back
+  // to light, which is the safer default when the OS preference is unknown.
   const mode: ColorMode =
-    themePref === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : themePref;
+    themePref === 'system' ? (systemScheme === 'dark' ? 'dark' : 'light') : themePref;
 
   const value = useMemo<Theme>(() => ({
     mode,
