@@ -4,6 +4,7 @@ import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
 import type { AskMsg } from '@/lib/islamicAi';
 import { DEFAULT_RECITER_ID } from '@/data/quranAudio';
+import { nextHifzState, type HifzAyahState, type HifzGrade } from '@/lib/hifz';
 
 // Cap on persisted chat history — generous enough for normal use, small
 // enough that AsyncStorage stays under its per-key budget even when each
@@ -143,6 +144,9 @@ export interface AppState {
   // "Practice Recitation" attempt log, most recent last. Capped to
   // RECITATION_HISTORY_CAP on every append.
   recitationHistory: RecitationAttempt[];
+  // Hifz (memorization) spaced-repetition state, keyed "surah:ayah". Absence
+  // of a key means the ayah has never been reviewed.
+  hifzProgress: Record<string, HifzAyahState>;
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
@@ -165,6 +169,8 @@ export interface AppState {
   setAskSending: (v: boolean) => void;
   setAskLastSendAt: (t: number) => void;
   addRecitationAttempt: (attempt: RecitationAttempt) => void;
+  recordHifzReview: (surah: number, ayah: number, grade: HifzGrade) => void;
+  resetHifzAyah: (surah: number, ayah: number) => void;
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
@@ -213,6 +219,7 @@ const DEFAULT_STATE = {
   askSending: false,
   askLastSendAt: 0,
   recitationHistory: [] as RecitationAttempt[],
+  hifzProgress: {} as Record<string, HifzAyahState>,
 };
 
 function addTo(target: BucketStats, h: number, t: number, p: number) {
@@ -241,6 +248,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       // in-flight request that can no longer be resolved across reloads.
       askHistory: state.askHistory.filter(m => !m.pending),
       recitationHistory: state.recitationHistory,
+      hifzProgress: state.hifzProgress,
     });
     await AsyncStorage.setItem(STORAGE_KEY, data);
   } catch {
@@ -253,7 +261,7 @@ type Actions = Pick<AppState,
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
   'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt' |
-  'addRecitationAttempt'>;
+  'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
@@ -403,6 +411,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     void persist(get());
   },
+  recordHifzReview: (surah, ayah, grade) => {
+    const key = `${surah}:${ayah}`;
+    set(s => ({
+      hifzProgress: { ...s.hifzProgress, [key]: nextHifzState(s.hifzProgress[key], grade) },
+    }));
+    void persist(get());
+  },
+  resetHifzAyah: (surah, ayah) => {
+    const key = `${surah}:${ayah}`;
+    set(s => {
+      if (!(key in s.hifzProgress)) return s;
+      const next = { ...s.hifzProgress };
+      delete next[key];
+      return { hifzProgress: next };
+    });
+    void persist(get());
+  },
 }));
 
 export async function hydrateAppStore(): Promise<void> {
@@ -445,6 +470,8 @@ export async function hydrateAppStore(): Promise<void> {
         // Strip pending messages on hydrate — they can never resolve now.
         askHistory: Array.isArray(data.askHistory) ? data.askHistory.filter((m: AskMsg) => !m.pending) : [],
         recitationHistory: Array.isArray(data.recitationHistory) ? data.recitationHistory : [],
+        hifzProgress: data.hifzProgress && typeof data.hifzProgress === 'object' && !Array.isArray(data.hifzProgress)
+          ? data.hifzProgress : {},
       });
     }
   } finally {

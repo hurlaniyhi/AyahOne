@@ -103,3 +103,60 @@ export function useBestRecitationScore(surah: number, ayah: number): number | nu
     return best;
   }, [history, surah, ayah]);
 }
+
+/**
+ * Ayahs whose Hifz spaced-repetition `dueDate` has arrived, oldest-due
+ * first. Powers the hub's "Due for Review" queue.
+ */
+export function useHifzDueQueue(limit?: number): { surah: number; ayah: number }[] {
+  const progress = useAppStore(s => s.hifzProgress);
+  return useMemo(() => {
+    const today = todayKey();
+    const due = Object.entries(progress)
+      .filter(([, state]) => state.dueDate <= today)
+      .sort((a, b) => a[1].dueDate.localeCompare(b[1].dueDate))
+      .map(([key]) => {
+        const [surah, ayah] = key.split(':').map(Number);
+        return { surah, ayah };
+      });
+    return limit ? due.slice(0, limit) : due;
+  }, [progress, limit]);
+}
+
+/**
+ * Hifz progress for one surah. `memorized` counts any ayah with at least one
+ * recorded review (regardless of strength tier); `mastered` counts only
+ * those that have reached the 'mastered' tier — the hub can show either or
+ * both depending on how much nuance a given view wants.
+ */
+export function useHifzSurahProgress(surah: number, totalAyahs: number): { memorized: number; mastered: number; total: number; percent: number } {
+  const progress = useAppStore(s => s.hifzProgress);
+  return useMemo(() => {
+    let memorized = 0;
+    let mastered = 0;
+    for (let ayah = 1; ayah <= totalAyahs; ayah++) {
+      const state = progress[`${surah}:${ayah}`];
+      if (!state) continue;
+      memorized++;
+      if (state.strength === 'mastered') mastered++;
+    }
+    return { memorized, mastered, total: totalAyahs, percent: totalAyahs ? Math.round((memorized / totalAyahs) * 100) : 0 };
+  }, [progress, surah, totalAyahs]);
+}
+
+/** Headline Hifz numbers for the hub header and the Reading-tab entry tile. */
+export function useHifzOverallStats(): { totalMemorized: number; totalMastered: number; dueToday: number } {
+  const progress = useAppStore(s => s.hifzProgress);
+  return useMemo(() => {
+    const today = todayKey();
+    let totalMemorized = 0;
+    let totalMastered = 0;
+    let dueToday = 0;
+    for (const state of Object.values(progress)) {
+      totalMemorized++;
+      if (state.strength === 'mastered') totalMastered++;
+      if (state.dueDate <= today) dueToday++;
+    }
+    return { totalMemorized, totalMastered, dueToday };
+  }, [progress]);
+}
