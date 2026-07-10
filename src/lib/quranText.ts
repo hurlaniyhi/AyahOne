@@ -35,3 +35,29 @@ export function toArabicDigits(n: number): string {
 export function withAyahMarker(arabic: string, verseNumber: number): string {
   return `${arabic} \u06DD${toArabicDigits(verseNumber)}`;
 }
+
+// Some Uthmani text sources (including the one quranApi.ts fetches from)
+// embed the Bismillah as a literal prefix of ayah 1's own text for every
+// surah except Al-Fatihah (1, where it IS ayah 1) and At-Tawbah (9, which
+// has none) \u2014 rather than treating it as separate, non-enumerated text.
+// Hifz mode's QUL karaoke word-timestamp data takes the opposite convention:
+// word 1 there is always the surah's own first word, Bismillah excluded
+// entirely. Any word array driven by that timing data must have this prefix
+// stripped first, or every highlight lands a full Bismillah (4 words) early.
+// Comparison strips harakat/tatweel and folds alef variants so it survives
+// differences in exact diacritic encoding between sources.
+const ARABIC_DIACRITICS_RE = /[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
+const ALEF_VARIANTS_RE = /[\u0622\u0623\u0625\u0671\u0672\u0673\u0675]/g;
+function bismillahSkeleton(word: string): string {
+  return word.replace(ALEF_VARIANTS_RE, '\u0627').replace(ARABIC_DIACRITICS_RE, '');
+}
+const BISMILLAH_SKELETON = ['\u0628\u0633\u0645', '\u0627\u0644\u0644\u0647', '\u0627\u0644\u0631\u062D\u0645\u0646', '\u0627\u0644\u0631\u062D\u064A\u0645'];
+
+// Strips a detected Bismillah prefix from an already-split word array.
+// Returns the input unchanged if the first words don't match \u2014 safe to call
+// even when the source text turns out not to embed Bismillah after all.
+export function stripBismillahPrefix(words: string[]): string[] {
+  if (words.length <= BISMILLAH_SKELETON.length) return words;
+  const isBismillah = BISMILLAH_SKELETON.every((skeleton, i) => bismillahSkeleton(words[i]) === skeleton);
+  return isBismillah ? words.slice(BISMILLAH_SKELETON.length) : words;
+}

@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 import { useAppStore, type BucketStats } from './appStore';
 import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
+import { SURAHS } from '@/data/surahs';
+import { JUZ_STARTS, ayahsInJuz, juzForAyah } from '@/data/juz';
+
+const TOTAL_QURAN_AYAHS = SURAHS.reduce((sum, s) => sum + s.numberOfAyahs, 0);
 
 const empty: BucketStats = { hasanat: 0, verses: 0, timeSec: 0, pages: 0 };
 
@@ -145,8 +149,12 @@ export function useHifzSurahProgress(surah: number, totalAyahs: number): { memor
 }
 
 /** Headline Hifz numbers for the hub header and the Reading-tab entry tile. */
-export function useHifzOverallStats(): { totalMemorized: number; totalMastered: number; dueToday: number } {
+export function useHifzOverallStats(): {
+  totalMemorized: number; totalMastered: number; dueToday: number;
+  completionPercent: number; streakDays: number;
+} {
   const progress = useAppStore(s => s.hifzProgress);
+  const streakDays = useAppStore(s => s.hifzStreakDays);
   return useMemo(() => {
     const today = todayKey();
     let totalMemorized = 0;
@@ -157,6 +165,123 @@ export function useHifzOverallStats(): { totalMemorized: number; totalMastered: 
       if (state.strength === 'mastered') totalMastered++;
       if (state.dueDate <= today) dueToday++;
     }
-    return { totalMemorized, totalMastered, dueToday };
+    const completionPercent = TOTAL_QURAN_AYAHS
+      ? Math.round((totalMastered / TOTAL_QURAN_AYAHS) * 1000) / 10 // one decimal place
+      : 0;
+    return { totalMemorized, totalMastered, dueToday, completionPercent, streakDays };
+  }, [progress, streakDays]);
+}
+
+/**
+ * Which juz (1-30) the user most recently worked on (by `lastReviewedAt`
+ * across all Hifz progress), and how many of the 30 juz are fully
+ * 'mastered'. `currentJuz` is `null` until at least one ayah has been
+ * reviewed.
+ */
+export function useHifzJuzStats(): { currentJuz: number | null; juzCompleted: number } {
+  const progress = useAppStore(s => s.hifzProgress);
+  return useMemo(() => {
+    let currentJuz: number | null = null;
+    let latest = '';
+    for (const [key, state] of Object.entries(progress)) {
+      if (state.lastReviewedAt > latest) {
+        latest = state.lastReviewedAt;
+        const [surah, ayah] = key.split(':').map(Number);
+        currentJuz = juzForAyah(surah, ayah);
+      }
+    }
+    let juzCompleted = 0;
+    for (let juz = 1; juz <= JUZ_STARTS.length; juz++) {
+      const ayahs = ayahsInJuz(juz);
+      if (ayahs.length > 0 && ayahs.every(({ surah, ayah }) => progress[`${surah}:${ayah}`]?.strength === 'mastered')) {
+        juzCompleted++;
+      }
+    }
+    return { currentJuz, juzCompleted };
   }, [progress]);
+}
+
+export interface HifzTodaysGoal {
+  surah: number;
+  startAyah: number;
+  endAyah: number;
+  target: number;
+  doneToday: number;
+}
+
+/**
+ * Today's new-memorization target, derived from the Hifz goal wizard
+ * (`hifzGoalType`/`hifzVersesPerDay`/`hifzGoalSurahs`): the next run of
+ * never-reviewed ayahs in the configured scope, capped at `versesPerDay`
+ * ayahs and — deliberately — never crossing a surah boundary, so the
+ * practice screen (which is always scoped to one surah) can open it
+ * directly. Returns `null` when no goal has been set up yet, or when the
+ * whole scope has already been touched.
+ */
+export function useHifzTodaysGoal(): HifzTodaysGoal | null {
+  const goalType = useAppStore(s => s.hifzGoalType);
+  const versesPerDay = useAppStore(s => s.hifzVersesPerDay);
+  const goalSurahs = useAppStore(s => s.hifzGoalSurahs);
+  const progress = useAppStore(s => s.hifzProgress);
+
+  return useMemo(() => {
+    if (!goalType) return null;
+
+    const scope: { surah: number; ayah: number }[] = [];
+    if (goalType === 'whole') {
+      for (const surahMeta of SURAHS) {
+        for (let ayah = 1; ayah <= surahMeta.numberOfAyahs; ayah++) scope.push({ surah: surahMeta.number, ayah });
+      }
+    } else if (goalType === 'surahs') {
+      for (const surahNum of [...goalSurahs].sort((a, b) => a - b)) {
+        const meta = SURAHS.find(x => x.number === surahNum);
+        if (!meta) continue;
+        for (let ayah = 1; ayah <= meta.numberOfAyahs; ayah++) scope.push({ surah: surahNum, ayah });
+      }
+    } else {
+      scope.push(...ayahsInJuz(30)); // Juz Amma
+    }
+
+    const firstNewIndex = scope.findIndex(({ surah, ayah }) => !progress[`${surah}:${ayah}`]);
+    if (firstNewIndex === -1) return null;
+
+    const start = scope[firstNewIndex];
+    let endAyah = start.ayah;
+    let count = 1;
+    for (let i = firstNewIndex + 1; i < scope.length && count < versesPerDay; i++) {
+      const next = scope[i];
+      if (next.surah !== start.surah) break;
+      if (progress[`${next.surah}:${next.ayah}`]) break;
+      endAyah = next.ayah;
+      count++;
+    }
+
+    const today = todayKey();
+    let doneToday = 0;
+    for (let a = start.ayah; a <= endAyah; a++) {
+      const st = progress[`${start.surah}:${a}`];
+      if (st && todayKey(new Date(st.lastReviewedAt)) === today) doneToday++;
+    }
+
+    return { surah: start.surah, startAyah: start.ayah, endAyah, target: versesPerDay, doneToday };
+  }, [goalType, versesPerDay, goalSurahs, progress]);
+}
+
+/**
+ * The ayahs graded "Forgotten" most often, most-forgotten first. Excludes
+ * anything with zero lapses — this is a "what needs extra attention" list,
+ * not a full inventory.
+ */
+export function useHifzMostForgotten(limit = 10): { surah: number; ayah: number; lapses: number }[] {
+  const progress = useAppStore(s => s.hifzProgress);
+  return useMemo(() => {
+    return Object.entries(progress)
+      .filter(([, state]) => state.lapses > 0)
+      .map(([key, state]) => {
+        const [surah, ayah] = key.split(':').map(Number);
+        return { surah, ayah, lapses: state.lapses };
+      })
+      .sort((a, b) => b.lapses - a.lapses)
+      .slice(0, limit);
+  }, [progress, limit]);
 }

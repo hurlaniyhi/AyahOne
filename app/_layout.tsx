@@ -33,7 +33,9 @@ function RootStack() {
         <Stack.Screen name="read/[surah]" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="recite/[surah]" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="hifz/index" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="hifz/setup" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="hifz/[surah]" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="hifz/search" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="search" options={{ presentation: 'modal', title: 'Search' }} />
         <Stack.Screen name="settings/account" options={{ title: 'Account' }} />
         <Stack.Screen name="settings/quran-display" options={{ title: 'Quran Display' }} />
