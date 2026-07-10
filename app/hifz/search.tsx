@@ -85,7 +85,10 @@ export default function HifzSearchScreen() {
         </View>
 
         {query.trim().length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: t.spacing(2) }}>
+          // flexGrow: 0 stops this horizontal ScrollView from stretching to
+          // fill the column's spare vertical space (RN's default) — otherwise
+          // it swallows the chip row's height and the results below overlap it.
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: t.spacing(2) }}>
             {filters.map(f => {
               const active = filter === f.key;
               return (
@@ -107,7 +110,7 @@ export default function HifzSearchScreen() {
           </ScrollView>
         )}
 
-        <ScrollView contentContainerStyle={{ gap: t.spacing(2), paddingBottom: t.spacing(8) }} showsVerticalScrollIndicator={false}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: t.spacing(2), paddingBottom: t.spacing(8) }} showsVerticalScrollIndicator={false}>
           {query.trim().length > 0 && filtered.length === 0 && (
             <Text style={{ color: t.colors.textMuted, textAlign: 'center', marginTop: t.spacing(6) }}>
               {s.noResults}

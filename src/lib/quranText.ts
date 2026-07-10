@@ -61,3 +61,15 @@ export function stripBismillahPrefix(words: string[]): string[] {
   const isBismillah = BISMILLAH_SKELETON.every((skeleton, i) => bismillahSkeleton(words[i]) === skeleton);
   return isBismillah ? words.slice(BISMILLAH_SKELETON.length) : words;
 }
+
+// Tanzil-style Uthmani sources (the one quranApi.ts fetches) space-separate the
+// small waqf/pause marks (\u06D6-\u06DC), sajda and rub-el-hizb marks as their
+// own whitespace tokens. QUL's word-by-word karaoke timing never counts these
+// as words, so a raw split(/\s+/) yields phantom "word" tiles that shift every
+// highlight after the mark forward. A token that is nothing but such marks
+// (harakat / dagger-alef / tatweel included) is not a real word; real words
+// keep at least one base letter and pass unchanged.
+const WORD_TOKEN_MARKS_RE = /[\u064B-\u065F\u0670\u06D4\u06D6-\u06ED\u0640]/g;
+export function isQuranWordToken(token: string): boolean {
+  return token.replace(WORD_TOKEN_MARKS_RE, '').trim().length > 0;
+}

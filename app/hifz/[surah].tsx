@@ -11,7 +11,7 @@ import { useHifzSurahProgress } from '@/store/selectors';
 import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { getKaraokeAyahData } from '@/data/hifzKaraoke';
-import { arabicFontFor, arabicLineHeight as arabicLineHeightFor, stripBismillahPrefix } from '@/lib/quranText';
+import { arabicFontFor, arabicLineHeight as arabicLineHeightFor, stripBismillahPrefix, isQuranWordToken } from '@/lib/quranText';
 import { isDue, shouldRequeueToday, type HifzGrade } from '@/lib/hifz';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
@@ -120,7 +120,10 @@ export default function HifzPracticeScreen() {
   const showBismillah = current?.numberInSurah === 1 && surahNumber !== 1 && surahNumber !== 9;
   const words = useMemo(() => {
     if (!current) return [];
-    const split = current.arabic.split(/\s+/).filter(Boolean);
+    // filter(isQuranWordToken) drops space-separated waqf/pause marks so the
+    // tile count matches QUL's word-by-word timing — otherwise every karaoke
+    // highlight after a mark drifts forward. See isQuranWordToken in quranText.
+    const split = current.arabic.split(/\s+/).filter(Boolean).filter(isQuranWordToken);
     return showBismillah ? stripBismillahPrefix(split) : split;
   }, [current, showBismillah]);
   const finished = ayahs != null && sessionIndex >= sessionQueue.length;

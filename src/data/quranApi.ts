@@ -199,6 +199,12 @@ export function searchCached(query: string): SearchHit[] {
   const qShort = normalizeArabicShort(query);
   if (!qLong && !qShort) return [];
   const hits: SearchHit[] = [];
+  // The same surah can live in memCache under several keys (different
+  // translation and/or script), so a single ayah would otherwise be pushed
+  // once per cached copy — yielding duplicate `surah:ayah` hits that break
+  // React list keys (the "two children with the same key" warning). Dedupe
+  // on `surah:ayah`, keeping the first copy seen.
+  const seen = new Set<string>();
   memCache.forEach(content => {
     if (!content || !Array.isArray(content.ayahs)) return;
     content.ayahs.forEach(a => {
@@ -207,6 +213,9 @@ export function searchCached(query: string): SearchHit[] {
       const longHit = !!qLong && normalizeArabicLong(a.arabic).includes(qLong);
       const shortHit = !longHit && !!qShort && normalizeArabicShort(a.arabic).includes(qShort);
       if (longHit || shortHit) {
+        const dedupeKey = `${content.number}:${a.numberInSurah}`;
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
         hits.push({
           surah: content.number,
           ayah: a.numberInSurah,

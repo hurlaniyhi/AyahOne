@@ -13,6 +13,7 @@ import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
+import { stripBismillahPrefix } from '@/lib/quranText';
 import { IconButton } from '@/components/Button';
 import { AyahMarker } from '@/components/AyahMarker';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
@@ -156,6 +157,17 @@ export default function VerseReader() {
       : null,
     [current, settings.arabicScript],
   );
+  // The fetched Uthmani/IndoPak text embeds Bismillah as a literal prefix of
+  // ayah 1's own text for every surah except Al-Fatihah (1, where it IS ayah
+  // 1) and At-Tawbah (9, which has none) — the `showBismillah` block below
+  // already renders it as its own line, so the plain (non-tajweed) text path
+  // must strip it here or it renders twice. Tajweed's edition doesn't embed
+  // it, so tajweedSegments (parsed straight from current.arabic) is left as-is.
+  const plainDisplayArabic = useMemo(() => {
+    if (!current) return '';
+    if (current.numberInSurah !== 1 || surahNumber === 1 || surahNumber === 9) return current.arabic;
+    return stripBismillahPrefix(current.arabic.split(/\s+/).filter(Boolean)).join(' ');
+  }, [current, surahNumber]);
   const total = ayahs?.length ?? surahMeta.numberOfAyahs;
   const versesLeft = Math.max(0, total - (idx + 1));
   const progress = total ? (idx + 1) / total : 0;
@@ -420,7 +432,7 @@ export default function VerseReader() {
                         ? <Text key={i} style={{ color: TAJWEED_COLORS[seg.rule] }}>{seg.text}</Text>
                         : seg.text
                     )
-                  : current.arabic}
+                  : plainDisplayArabic}
               </Text>
             )}
 
