@@ -6,6 +6,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { useAppStore } from '@/store/appStore';
+import { useHifzOverallStats } from '@/store/selectors';
 import { getSurah } from '@/data/surahs';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -20,6 +21,7 @@ export default function ReadingScreen() {
   const bookmarks = useAppStore(st => st.bookmarks);
   const lastRead = useAppStore(st => st.lastRead);
   const profile = useAppStore(st => st.profile);
+  const hifzStats = useHifzOverallStats();
 
   const [surahNumber, setSurahNumber] = useState<number>(lastRead?.surah ?? 18);
   const [verse, setVerse] = useState<number>(lastRead?.ayah ?? 1);
@@ -104,6 +106,35 @@ export default function ReadingScreen() {
           label={s.startReadingQuran}
           onPress={() => router.push(`/read/${surahNumber}?ayah=${verse}`)}
         />
+
+        {/* Hifz entry — full-width tile so memorization reads as a distinct
+            mode from casual reading, not just another stat. */}
+        <Pressable onPress={() => router.push('/hifz')}>
+          <Card watermark style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
+            <View style={{
+              width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center',
+              backgroundColor: t.accent.primarySoft,
+            }}>
+              <Ionicons name="layers-outline" size={22} color={t.accent.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 16 }}>{s.hifzTitle}</Text>
+              <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                {hifzStats.totalMemorized > 0
+                  ? s.hifzTileSummary
+                      .replace('{count}', String(hifzStats.totalMemorized))
+                      .replace('{due}', String(hifzStats.dueToday))
+                  : s.hifzTileEmpty}
+              </Text>
+            </View>
+            {hifzStats.dueToday > 0 && (
+              <View style={{ paddingHorizontal: t.spacing(2), paddingVertical: 3, borderRadius: t.radius.pill, backgroundColor: t.accent.primary }}>
+                <Text style={{ color: t.accent.onPrimary, fontWeight: '800', fontSize: 11 }}>{hifzStats.dueToday}</Text>
+              </View>
+            )}
+            <Ionicons name="chevron-forward" size={20} color={t.colors.textMuted} />
+          </Card>
+        </Pressable>
 
         {/* Favourites + Bookmarks — restful editorial tiles */}
         <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>

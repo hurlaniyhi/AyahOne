@@ -4,6 +4,7 @@ import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
 import type { AskMsg } from '@/lib/islamicAi';
 import { DEFAULT_RECITER_ID } from '@/data/quranAudio';
+import { nextHifzState, type HifzAyahState, type HifzGrade } from '@/lib/hifz';
 
 // Cap on persisted chat history — generous enough for normal use, small
 // enough that AsyncStorage stays under its per-key budget even when each
@@ -16,6 +17,11 @@ const RECITATION_HISTORY_CAP = 100;
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type AppLanguage = 'en' | 'ar' | 'fr';
 export type ArabicScript = 'uthmani' | 'indopak' | 'tajweed';
+// 'page' (one Madinah-mushaf page a day) is intentionally not offered yet —
+// it needs a page↔ayah index across the whole Qur'an, not just open surahs,
+// which is a separate, not-yet-built data source (see HIFZ_ROADMAP.md).
+export type HifzGoalType = 'whole' | 'surahs' | 'juzAmma';
+const HIFZ_GOAL_TYPES: HifzGoalType[] = ['whole', 'surahs', 'juzAmma'];
 
 // Allowed range for the Arabic font-size slider, in px. Kept here so callers
 // (read screen, settings preview) can clamp / map without re-declaring it.
@@ -143,6 +149,25 @@ export interface AppState {
   // "Practice Recitation" attempt log, most recent last. Capped to
   // RECITATION_HISTORY_CAP on every append.
   recitationHistory: RecitationAttempt[];
+  // Hifz (memorization) spaced-repetition state, keyed "surah:ayah". Absence
+  // of a key means the ayah has never been reviewed.
+  hifzProgress: Record<string, HifzAyahState>;
+  // Consecutive days (including today) with at least one Hifz review.
+  hifzStreakDays: number;
+  // todayKey() of the last day a Hifz review was recorded. Empty string
+  // means never. Used only to compute hifzStreakDays on the next review.
+  hifzLastActivityDate: string;
+  // Hifz goal wizard result. `null` type means the user hasn't set up a plan
+  // yet — the hub shows a setup prompt instead of a "Today's Goal" card.
+  hifzGoalType: HifzGoalType | null;
+  hifzVersesPerDay: number;
+  // Only meaningful when hifzGoalType === 'surahs'.
+  hifzGoalSurahs: number[];
+  // Free-text per-ayah notes ("similar to ayah 23", a pronunciation
+  // reminder, ...), keyed "surah:ayah". Independent of hifzProgress — a
+  // note can exist for an ayah regardless of its review/mastery state, and
+  // survives a resetHifzAyah.
+  hifzNotes: Record<string, string>;
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
@@ -165,6 +190,10 @@ export interface AppState {
   setAskSending: (v: boolean) => void;
   setAskLastSendAt: (t: number) => void;
   addRecitationAttempt: (attempt: RecitationAttempt) => void;
+  recordHifzReview: (surah: number, ayah: number, grade: HifzGrade) => void;
+  resetHifzAyah: (surah: number, ayah: number) => void;
+  setHifzGoal: (goal: { type: HifzGoalType; versesPerDay: number; surahs?: number[] }) => void;
+  setHifzNote: (surah: number, ayah: number, text: string) => void;
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
@@ -213,6 +242,13 @@ const DEFAULT_STATE = {
   askSending: false,
   askLastSendAt: 0,
   recitationHistory: [] as RecitationAttempt[],
+  hifzProgress: {} as Record<string, HifzAyahState>,
+  hifzStreakDays: 0,
+  hifzLastActivityDate: '',
+  hifzGoalType: null as HifzGoalType | null,
+  hifzVersesPerDay: 2,
+  hifzGoalSurahs: [] as number[],
+  hifzNotes: {} as Record<string, string>,
 };
 
 function addTo(target: BucketStats, h: number, t: number, p: number) {
@@ -241,6 +277,13 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       // in-flight request that can no longer be resolved across reloads.
       askHistory: state.askHistory.filter(m => !m.pending),
       recitationHistory: state.recitationHistory,
+      hifzProgress: state.hifzProgress,
+      hifzStreakDays: state.hifzStreakDays,
+      hifzLastActivityDate: state.hifzLastActivityDate,
+      hifzGoalType: state.hifzGoalType,
+      hifzVersesPerDay: state.hifzVersesPerDay,
+      hifzGoalSurahs: state.hifzGoalSurahs,
+      hifzNotes: state.hifzNotes,
     });
     await AsyncStorage.setItem(STORAGE_KEY, data);
   } catch {
@@ -253,7 +296,7 @@ type Actions = Pick<AppState,
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
   'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt' |
-  'addRecitationAttempt'>;
+  'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah' | 'setHifzGoal' | 'setHifzNote'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
@@ -403,7 +446,76 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     void persist(get());
   },
+  recordHifzReview: (surah, ayah, grade) => {
+    const key = `${surah}:${ayah}`;
+    const today = todayKey();
+    set(s => {
+      let streak = s.hifzStreakDays;
+      let lastActivity = s.hifzLastActivityDate;
+      if (lastActivity !== today) {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        streak = lastActivity === todayKey(y) ? streak + 1 : 1;
+        lastActivity = today;
+      }
+      return {
+        hifzProgress: { ...s.hifzProgress, [key]: nextHifzState(s.hifzProgress[key], grade) },
+        hifzStreakDays: streak,
+        hifzLastActivityDate: lastActivity,
+      };
+    });
+    void persist(get());
+  },
+  resetHifzAyah: (surah, ayah) => {
+    const key = `${surah}:${ayah}`;
+    set(s => {
+      if (!(key in s.hifzProgress)) return s;
+      const next = { ...s.hifzProgress };
+      delete next[key];
+      return { hifzProgress: next };
+    });
+    void persist(get());
+  },
+  setHifzGoal: (goal) => {
+    set({
+      hifzGoalType: goal.type,
+      hifzVersesPerDay: Math.max(1, Math.floor(goal.versesPerDay)),
+      hifzGoalSurahs: goal.type === 'surahs' ? (goal.surahs ?? []) : [],
+    });
+    void persist(get());
+  },
+  setHifzNote: (surah, ayah, text) => {
+    const key = `${surah}:${ayah}`;
+    const trimmed = text.trim();
+    set(s => {
+      if (!trimmed) {
+        if (!(key in s.hifzNotes)) return s;
+        const next = { ...s.hifzNotes };
+        delete next[key];
+        return { hifzNotes: next };
+      }
+      return { hifzNotes: { ...s.hifzNotes, [key]: trimmed } };
+    });
+    void persist(get());
+  },
 }));
+
+// Defensively filters incoming persisted Hifz data down to entries matching
+// the current HifzAyahState shape — protects against an older on-device
+// schema (e.g. the previous stepIndex-based version) producing entries
+// missing `intervalDays`/`dueDate`, which would otherwise break every date
+// comparison downstream (isDue, due-queue sorting, etc).
+function sanitizeHifzProgress(raw: unknown): Record<string, HifzAyahState> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, HifzAyahState> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const v = value as Partial<HifzAyahState> | null;
+    if (v && typeof v.intervalDays === 'number' && typeof v.dueDate === 'string') {
+      out[key] = v as HifzAyahState;
+    }
+  }
+  return out;
+}
 
 export async function hydrateAppStore(): Promise<void> {
   try {
@@ -445,6 +557,14 @@ export async function hydrateAppStore(): Promise<void> {
         // Strip pending messages on hydrate — they can never resolve now.
         askHistory: Array.isArray(data.askHistory) ? data.askHistory.filter((m: AskMsg) => !m.pending) : [],
         recitationHistory: Array.isArray(data.recitationHistory) ? data.recitationHistory : [],
+        hifzProgress: sanitizeHifzProgress(data.hifzProgress),
+        hifzStreakDays: typeof data.hifzStreakDays === 'number' ? data.hifzStreakDays : 0,
+        hifzLastActivityDate: typeof data.hifzLastActivityDate === 'string' ? data.hifzLastActivityDate : '',
+        hifzGoalType: HIFZ_GOAL_TYPES.includes(data.hifzGoalType) ? data.hifzGoalType : null,
+        hifzVersesPerDay: typeof data.hifzVersesPerDay === 'number' && data.hifzVersesPerDay > 0
+          ? data.hifzVersesPerDay : DEFAULT_STATE.hifzVersesPerDay,
+        hifzGoalSurahs: Array.isArray(data.hifzGoalSurahs) ? data.hifzGoalSurahs.filter((n: unknown) => typeof n === 'number') : [],
+        hifzNotes: data.hifzNotes && typeof data.hifzNotes === 'object' && !Array.isArray(data.hifzNotes) ? data.hifzNotes : {},
       });
     }
   } finally {
