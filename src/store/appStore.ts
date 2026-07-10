@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
-import type { AskMsg } from '@/lib/islamicAi';
+import type { AskMsg, AskReference, TefseerResult } from '@/lib/islamicAi';
 import { DEFAULT_RECITER_ID } from '@/data/quranAudio';
 import { nextHifzState, type HifzAyahState, type HifzGrade } from '@/lib/hifz';
 
@@ -13,6 +13,10 @@ const ASK_HISTORY_CAP = 60;
 // Cap on persisted recitation-practice attempts — enough to derive a
 // meaningful "best score" per ayah without unbounded storage growth.
 const RECITATION_HISTORY_CAP = 100;
+// Cap on cached per-ayah tefseer results. Each entry is a small structured
+// object; this keeps AsyncStorage bounded while still covering a long
+// reading session without re-hitting the AI for ayahs already explained.
+const TEFSEER_CACHE_CAP = 120;
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type AppLanguage = 'en' | 'ar' | 'fr';
@@ -168,6 +172,10 @@ export interface AppState {
   // note can exist for an ayah regardless of its review/mastery state, and
   // survives a resetHifzAyah.
   hifzNotes: Record<string, string>;
+  // Cached per-ayah tefseer (tafsir) results, keyed "surah:ayah:lang" so a
+  // language switch fetches a fresh explanation rather than showing the
+  // previous language's text. Capped to TEFSEER_CACHE_CAP on every write.
+  tefseerCache: Record<string, TefseerResult>;
 
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   setProfileName: (name: string) => void;
@@ -194,6 +202,7 @@ export interface AppState {
   resetHifzAyah: (surah: number, ayah: number) => void;
   setHifzGoal: (goal: { type: HifzGoalType; versesPerDay: number; surahs?: number[] }) => void;
   setHifzNote: (surah: number, ayah: number, text: string) => void;
+  setTefseer: (key: string, result: TefseerResult) => void;
 }
 
 const STORAGE_KEY = 'ayahone:state:v1';
@@ -249,6 +258,7 @@ const DEFAULT_STATE = {
   hifzVersesPerDay: 2,
   hifzGoalSurahs: [] as number[],
   hifzNotes: {} as Record<string, string>,
+  tefseerCache: {} as Record<string, TefseerResult>,
 };
 
 function addTo(target: BucketStats, h: number, t: number, p: number) {
@@ -284,6 +294,7 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       hifzVersesPerDay: state.hifzVersesPerDay,
       hifzGoalSurahs: state.hifzGoalSurahs,
       hifzNotes: state.hifzNotes,
+      tefseerCache: state.tefseerCache,
     });
     await AsyncStorage.setItem(STORAGE_KEY, data);
   } catch {
@@ -296,7 +307,8 @@ type Actions = Pick<AppState,
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
   'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt' |
-  'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah' | 'setHifzGoal' | 'setHifzNote'>;
+  'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah' | 'setHifzGoal' | 'setHifzNote' |
+  'setTefseer'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
@@ -498,6 +510,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     void persist(get());
   },
+  setTefseer: (key, result) => {
+    set(s => {
+      const next = { ...s.tefseerCache, [key]: result };
+      const keys = Object.keys(next);
+      if (keys.length <= TEFSEER_CACHE_CAP) return { tefseerCache: next };
+      // Drop the oldest entries (string keys preserve insertion order) so the
+      // cache stays bounded, keeping the most recently explained ayahs.
+      const trimmed: Record<string, TefseerResult> = {};
+      for (const k of keys.slice(keys.length - TEFSEER_CACHE_CAP)) trimmed[k] = next[k];
+      return { tefseerCache: trimmed };
+    });
+    void persist(get());
+  },
 }));
 
 // Defensively filters incoming persisted Hifz data down to entries matching
@@ -512,6 +537,26 @@ function sanitizeHifzProgress(raw: unknown): Record<string, HifzAyahState> {
     const v = value as Partial<HifzAyahState> | null;
     if (v && typeof v.intervalDays === 'number' && typeof v.dueDate === 'string') {
       out[key] = v as HifzAyahState;
+    }
+  }
+  return out;
+}
+
+// Filters persisted tefseer cache down to entries matching the current
+// TefseerResult shape, so a malformed or older on-device entry can't crash
+// the sheet renderer (which maps over reflections/references).
+function sanitizeTefseerCache(raw: unknown): Record<string, TefseerResult> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, TefseerResult> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const v = value as Partial<TefseerResult> | null;
+    if (v && typeof v.summary === 'string' && Array.isArray(v.reflections) && Array.isArray(v.references)) {
+      out[key] = {
+        summary: v.summary,
+        context: typeof v.context === 'string' ? v.context : '',
+        reflections: v.reflections.filter((r): r is string => typeof r === 'string'),
+        references: v.references as AskReference[],
+      };
     }
   }
   return out;
@@ -565,6 +610,7 @@ export async function hydrateAppStore(): Promise<void> {
           ? data.hifzVersesPerDay : DEFAULT_STATE.hifzVersesPerDay,
         hifzGoalSurahs: Array.isArray(data.hifzGoalSurahs) ? data.hifzGoalSurahs.filter((n: unknown) => typeof n === 'number') : [],
         hifzNotes: data.hifzNotes && typeof data.hifzNotes === 'object' && !Array.isArray(data.hifzNotes) ? data.hifzNotes : {},
+        tefseerCache: sanitizeTefseerCache(data.tefseerCache),
       });
     }
   } finally {

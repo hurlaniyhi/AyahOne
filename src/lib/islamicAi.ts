@@ -273,3 +273,96 @@ export async function askIslamicAi(history: AskTurn[]): Promise<AskAnswer> {
     opinions:   Array.isArray(parsed.opinions) ? parsed.opinions : [],
   };
 }
+
+// ── Tefseer (per-ayah tafsir) ────────────────────────────────────────────
+// A focused, single-ayah explanation surfaced when the user taps an ayah on
+// the reading screen. Distinct from the open-ended Ask flow: no conversation
+// history, a fixed structured shape (meaning → context → reflections →
+// sources), and answers grounded in the classical tafsir corpus.
+
+export type TefseerLang = 'en' | 'ar' | 'fr';
+const TEFSEER_LANG_NAME: Record<TefseerLang, string> = {
+  en: 'English',
+  ar: 'Arabic',
+  fr: 'French',
+};
+
+export interface TefseerResult {
+  // Plain-language meaning + significance of the ayah (1\u20134 short paragraphs).
+  summary: string;
+  // Context of revelation (asbab al-nuzul) or thematic/surah context. Empty
+  // string when genuinely unknown \u2014 the model is told never to invent one.
+  context: string;
+  // Concise practical lessons/reflections, each a short sentence.
+  reflections: string[];
+  // Classical tafsir / hadith sources backing the explanation.
+  references: AskReference[];
+}
+
+const TEFSEER_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    summary: { type: 'STRING' },
+    context: { type: 'STRING' },
+    reflections: { type: 'ARRAY', items: { type: 'STRING' } },
+    references: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          source:   { type: 'STRING' },
+          citation: { type: 'STRING' },
+          quote:    { type: 'STRING' },
+        },
+        required: ['source', 'citation'],
+      },
+    },
+  },
+  required: ['summary', 'context', 'reflections', 'references'],
+} as const;
+
+export async function fetchTefseer(input: {
+  surah: number;
+  ayah: number;
+  surahName: string;
+  arabic: string;
+  translation: string;
+  language: TefseerLang;
+}): Promise<TefseerResult> {
+  const langName = TEFSEER_LANG_NAME[input.language] ?? 'English';
+  const systemPrompt = [
+    'You are a Qur\u2019an tafsir teacher. Explain the SINGLE ayah provided, drawing on the classical tafsir tradition \u2014 primarily Tafsir Ibn Kathir, and also al-Tabari, al-Qurtubi, and al-Sa\u2019di \u2014 together with authentic hadith.',
+    `Write the entire response in ${langName}.`,
+    'Stay strictly on this one ayah: its meaning, its place in the surah, and its lessons. Do not drift into unrelated topics.',
+    'Never fabricate a context of revelation (asbab al-nuzul), a citation, a hadith number, or a scholar attribution. If the context of revelation is not authentically established, leave the context field empty rather than inventing one.',
+    'Be respectful, humble, and clear. Frame everything as an educational explanation of what the classical scholars have said, not a binding ruling.',
+    '',
+    'Output: return STRICT JSON matching the supplied responseSchema. No prose outside the JSON.',
+    '- `summary`: the core meaning and significance of the ayah in plain language. 1\u20134 concise paragraphs separated by blank lines. Never end mid-sentence; no Markdown headers.',
+    '- `context`: a brief context of revelation or thematic/surah context. Empty string if not authentically known.',
+    '- `reflections`: 2\u20134 short, practical lessons or reflections drawn from the ayah. Each entry is one complete sentence.',
+    '- `references`: at most 4 entries from the classical tafsir/hadith tradition. Each has `source` (e.g. "Tafsir Ibn Kathir", "Sahih al-Bukhari") and `citation` (e.g. "2:255", "Hadith 4560"). The optional `quote` must be a SHORT, COMPLETE excerpt \u2014 omit it rather than cut it off mid-sentence.',
+  ].join('\n');
+
+  const userText = [
+    `Surah ${input.surah} (${input.surahName}), Ayah ${input.ayah}.`,
+    `Arabic: ${input.arabic}`,
+    `Translation: ${input.translation}`,
+    '',
+    'Provide the tafsir of this ayah.',
+  ].join('\n');
+
+  const parsed = await callGeminiJson({
+    systemPrompt,
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    responseSchema: TEFSEER_SCHEMA,
+  });
+  return {
+    summary:     String(parsed.summary ?? '').trim(),
+    context:     String(parsed.context ?? '').trim(),
+    reflections: Array.isArray(parsed.reflections)
+      ? parsed.reflections.map((r: unknown) => String(r).trim()).filter(Boolean)
+      : [],
+    references:  Array.isArray(parsed.references) ? parsed.references : [],
+  };
+}
