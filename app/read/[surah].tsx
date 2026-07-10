@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,8 @@ import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { GlassDock } from '@/components/GlassDock';
 import { DailyGoalBadge } from '@/components/DailyGoalBadge';
 import { VerseAudioListen } from '@/components/VerseAudioListen';
+import { TefseerSheet } from '@/components/TefseerSheet';
+import { fetchTefseer, IslamicAiError } from '@/lib/islamicAi';
 import { useTodayStats, useBestRecitationScore } from '@/store/selectors';
 
 // Standard Bismillah, shown as an opener for ayah 1 of every surah except
@@ -72,6 +74,8 @@ export default function VerseReader() {
   const toggleBookmark = useAppStore(st => st.toggleBookmark);
   const favorites = useAppStore(st => st.favorites);
   const bookmarks = useAppStore(st => st.bookmarks);
+  const tefseerCache = useAppStore(st => st.tefseerCache);
+  const setTefseer = useAppStore(st => st.setTefseer);
   const today = useTodayStats();
 
   const [ayahs, setAyahs] = useState<Ayah[] | null>(null);
@@ -89,6 +93,15 @@ export default function VerseReader() {
   const [transitionLabel, setTransitionLabel] = useState<string | null>(null);
   const transitionOpacity = useRef(new Animated.Value(0)).current;
   const prevSurahRef = useRef<number>(surahNumber);
+
+  // Tefseer (per-ayah tafsir) sheet state. `tefseerTarget` captures the ayah
+  // being explained at open time so the sheet stays stable and the cache
+  // lookup is decoupled from the live reading index.
+  const [tefseerTarget, setTefseerTarget] = useState<
+    { surah: number; ayah: number; surahName: string; arabic: string; translation: string } | null
+  >(null);
+  const [tefseerLoading, setTefseerLoading] = useState(false);
+  const [tefseerError, setTefseerError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -176,6 +189,13 @@ export default function VerseReader() {
   const isFav = key && favorites.includes(key);
   const isBkm = key && bookmarks.includes(key);
 
+  // Tefseer cache is keyed by ayah + language (a language switch means a fresh
+  // explanation). `tefseerResult` drives the open sheet; `hasTefseerCurrent`
+  // lights up the reader's Tafsir affordances when an explanation is cached.
+  const tefseerKey = tefseerTarget ? `${tefseerTarget.surah}:${tefseerTarget.ayah}:${settings.language}` : '';
+  const tefseerResult = tefseerKey ? (tefseerCache[tefseerKey] ?? null) : null;
+  const hasTefseerCurrent = !!(current && tefseerCache[`${surahNumber}:${current.numberInSurah}:${settings.language}`]);
+
   // `arabicFontSize` is now a continuous px value driven by the settings slider.
   const arabicSize = settings.arabicFontSize;
   const arabicLineHeight = arabicLineHeightFor(arabicSize);
@@ -250,6 +270,48 @@ export default function VerseReader() {
     const suffix = ephemeral ? '&nosave=1' : '';
     router.replace(`/read/${surahNumber - 1}?ayah=${lastAyah}${suffix}`);
   };
+
+  const runTefseer = useCallback(async (target: NonNullable<typeof tefseerTarget>) => {
+    const cacheKey = `${target.surah}:${target.ayah}:${settings.language}`;
+    setTefseerLoading(true);
+    setTefseerError(null);
+    try {
+      const result = await fetchTefseer({
+        surah: target.surah,
+        ayah: target.ayah,
+        surahName: target.surahName,
+        arabic: target.arabic,
+        translation: target.translation,
+        language: settings.language,
+      });
+      setTefseer(cacheKey, result);
+    } catch (e) {
+      const code = e instanceof IslamicAiError ? e.code : 'http';
+      setTefseerError(code === 'no-key' ? s.askApiKeyMissing : s.tefseerError);
+    } finally {
+      setTefseerLoading(false);
+    }
+  }, [settings.language, setTefseer, s]);
+
+  const openTefseer = useCallback(() => {
+    if (!current) return;
+    void Haptics.selectionAsync();
+    const target = {
+      surah: surahNumber,
+      ayah: current.numberInSurah,
+      surahName: surahMeta.englishName,
+      arabic: stripTajweed(current.arabic),
+      translation: current.translation,
+    };
+    setTefseerTarget(target);
+    if (!tefseerCache[`${target.surah}:${target.ayah}:${settings.language}`]) void runTefseer(target);
+  }, [current, surahNumber, surahMeta.englishName, settings.language, tefseerCache, runTefseer]);
+
+  const retryTefseer = useCallback(() => {
+    if (tefseerTarget) void runTefseer(tefseerTarget);
+  }, [tefseerTarget, runTefseer]);
+
+  const closeTefseer = useCallback(() => setTefseerTarget(null), []);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top', 'bottom']}>
@@ -381,6 +443,9 @@ export default function VerseReader() {
                 <Pressable hitSlop={10} onPress={() => current && toggleBookmark(surahNumber, current.numberInSurah)}>
                   <Ionicons name={isBkm ? 'bookmark' : 'bookmark-outline'} size={22} color={isBkm ? t.accent.primary : t.colors.textMuted} />
                 </Pressable>
+                <Pressable hitSlop={10} onPress={openTefseer}>
+                  <Ionicons name={hasTefseerCurrent ? 'book' : 'book-outline'} size={22} color={hasTefseerCurrent ? t.accent.primary : t.colors.textMuted} />
+                </Pressable>
               </View>
             </View>
 
@@ -409,6 +474,8 @@ export default function VerseReader() {
               <Text
                 allowFontScaling={false}
                 textBreakStrategy="simple"
+                onPress={openTefseer}
+                suppressHighlighting
                 style={{
                   color: t.colors.text, fontSize: arabicSize, lineHeight: arabicLineHeight,
                   textAlign: 'center', writingDirection: 'rtl',
@@ -461,9 +528,29 @@ export default function VerseReader() {
             </Text>
           )}
           {settings.showTranslation && current && (
-            <Text style={{ color: t.colors.text, fontSize: 18, lineHeight: 28, fontWeight: '500' }}>
+            <Text onPress={openTefseer} suppressHighlighting style={{ color: t.colors.text, fontSize: 18, lineHeight: 28, fontWeight: '500' }}>
               {current.translation}
             </Text>
+          )}
+
+          {/* Tafsir affordance — labelled for discoverability; lights up in the
+              accent tint once an explanation for this ayah has been fetched. */}
+          {current && (
+            <Pressable
+              onPress={openTefseer}
+              style={({ pressed }) => ({
+                alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
+                paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2.5),
+                borderRadius: t.radius.pill,
+                borderWidth: 0.75, borderColor: hasTefseerCurrent ? t.accent.primary : t.colors.hairline,
+                backgroundColor: hasTefseerCurrent ? t.accent.primarySoft : t.colors.surface,
+                transform: [{ scale: pressed ? t.pressedScale : 1 }],
+              })}
+            >
+              <Ionicons name="book" size={15} color={t.accent.primary} />
+              <Text style={{ color: t.accent.primary, fontWeight: '700', fontSize: 13, letterSpacing: 0.3 }}>{s.tefseerTapHint}</Text>
+              <Ionicons name="chevron-forward" size={13} color={t.accent.primary} />
+            </Pressable>
           )}
 
           {!settings.hideHasanat && current && (
@@ -557,6 +644,20 @@ export default function VerseReader() {
           </GlassDock>
         </View>
       </View>
+
+      <TefseerSheet
+        visible={tefseerTarget != null}
+        surah={tefseerTarget?.surah ?? surahNumber}
+        ayah={tefseerTarget?.ayah ?? 1}
+        surahName={tefseerTarget?.surahName ?? surahMeta.englishName}
+        arabic={tefseerTarget?.arabic ?? ''}
+        arabicFont={arabicFontFor(settings.arabicScript)}
+        loading={tefseerLoading}
+        result={tefseerResult}
+        error={tefseerError}
+        onRetry={retryTefseer}
+        onClose={closeTefseer}
+      />
     </SafeAreaView>
   );
 }
