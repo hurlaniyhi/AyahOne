@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { todayKey, weekKey, monthKey, yearKey } from '@/lib/format';
 import type { AccentId } from '@/theme/palettes';
-import type { AskMsg, AskReference, TefseerResult } from '@/lib/islamicAi';
+import type { AskMsg, TefseerReference, TefseerResult } from '@/lib/islamicAi';
 import { DEFAULT_RECITER_ID } from '@/data/quranAudio';
 import { nextHifzState, type HifzAyahState, type HifzGrade } from '@/lib/hifz';
 
@@ -555,7 +555,7 @@ function sanitizeTefseerCache(raw: unknown): Record<string, TefseerResult> {
         summary: v.summary,
         context: typeof v.context === 'string' ? v.context : '',
         reflections: v.reflections.filter((r): r is string => typeof r === 'string'),
-        references: v.references as AskReference[],
+        references: v.references as TefseerReference[],
       };
     }
   }

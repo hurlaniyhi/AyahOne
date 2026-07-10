@@ -168,9 +168,17 @@ export async function callGeminiJson(opts: {
   systemPrompt: string;
   contents: GeminiContent[];
   responseSchema: object;
+  // Optional per-call overrides. `maxOutputTokens` caps generation (defaults to
+  // Flash's max, 8192). `maxAttempts` caps the per-model retry loop; latency-
+  // sensitive callers can lower it to fail over to the stable model faster
+  // instead of sitting through the full backoff schedule on an overloaded model.
+  maxOutputTokens?: number;
+  maxAttempts?: number;
 }): Promise<any> {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   if (!apiKey) throw new IslamicAiError('Missing EXPO_PUBLIC_GEMINI_API_KEY', 'no-key');
+
+  const maxAttempts = opts.maxAttempts ?? __retryConfig.maxAttempts;
 
   const bodyFor = (model: ModelSpec) => ({
     systemInstruction: { parts: [{ text: opts.systemPrompt }] },
@@ -186,7 +194,7 @@ export async function callGeminiJson(opts: {
       // Max for Flash. With responseSchema enabled, Gemini will silently
       // truncate strings (while keeping the outer JSON valid) once the
       // budget is exhausted \u2014 so we want as much headroom as the model allows.
-      maxOutputTokens: 8192,
+      maxOutputTokens: opts.maxOutputTokens ?? 8192,
       responseMimeType: 'application/json',
       responseSchema: opts.responseSchema,
     },
@@ -201,7 +209,7 @@ export async function callGeminiJson(opts: {
     const endpoint = endpointFor(model.id);
     const body = bodyFor(model);
 
-    for (let attempt = 1; attempt <= __retryConfig.maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (attempt > 1) await sleep(__retryConfig.delayMs(attempt - 1));
 
       let resp: Response;
@@ -287,6 +295,17 @@ const TEFSEER_LANG_NAME: Record<TefseerLang, string> = {
   fr: 'French',
 };
 
+export interface TefseerReference {
+  source: string;
+  citation: string;
+  // Original Arabic of a quoted verse/hadith. Present only when the
+  // explanation actually quotes one; its translation lives in `quote`.
+  arabic?: string;
+  // Short translation/meaning (in the app language) of the quoted Arabic, or
+  // a brief excerpt from a source that is merely paraphrased.
+  quote?: string;
+}
+
 export interface TefseerResult {
   // Plain-language meaning + significance of the ayah (1\u20134 short paragraphs).
   summary: string;
@@ -296,7 +315,7 @@ export interface TefseerResult {
   // Concise practical lessons/reflections, each a short sentence.
   reflections: string[];
   // Classical tafsir / hadith sources backing the explanation.
-  references: AskReference[];
+  references: TefseerReference[];
 }
 
 const TEFSEER_SCHEMA = {
@@ -312,6 +331,7 @@ const TEFSEER_SCHEMA = {
         properties: {
           source:   { type: 'STRING' },
           citation: { type: 'STRING' },
+          arabic:   { type: 'STRING' },
           quote:    { type: 'STRING' },
         },
         required: ['source', 'citation'],
@@ -337,11 +357,16 @@ export async function fetchTefseer(input: {
     'Never fabricate a context of revelation (asbab al-nuzul), a citation, a hadith number, or a scholar attribution. If the context of revelation is not authentically established, leave the context field empty rather than inventing one.',
     'Be respectful, humble, and clear. Frame everything as an educational explanation of what the classical scholars have said, not a binding ruling.',
     '',
+    'Be concise \u2014 favour clear, tight phrasing over padding, but never drop a source or its key point for the sake of brevity.',
+    '',
     'Output: return STRICT JSON matching the supplied responseSchema. No prose outside the JSON.',
-    '- `summary`: the core meaning and significance of the ayah in plain language. 1\u20134 concise paragraphs separated by blank lines. Never end mid-sentence; no Markdown headers.',
-    '- `context`: a brief context of revelation or thematic/surah context. Empty string if not authentically known.',
-    '- `reflections`: 2\u20134 short, practical lessons or reflections drawn from the ayah. Each entry is one complete sentence.',
-    '- `references`: at most 4 entries from the classical tafsir/hadith tradition. Each has `source` (e.g. "Tafsir Ibn Kathir", "Sahih al-Bukhari") and `citation` (e.g. "2:255", "Hadith 4560"). The optional `quote` must be a SHORT, COMPLETE excerpt \u2014 omit it rather than cut it off mid-sentence.',
+    '- `summary`: the core meaning and significance of the ayah in plain language. 1\u20132 concise paragraphs separated by a blank line. Never end mid-sentence; no Markdown headers.',
+    '- `context`: a brief context of revelation or thematic/surah context, at most two sentences. Empty string if not authentically known.',
+    '- `reflections`: 2\u20133 short, practical lessons or reflections drawn from the ayah. Each entry is one complete sentence.',
+    '- `references`: at most 4 entries from the classical tafsir/hadith tradition. Each has `source` (e.g. "Tafsir Ibn Kathir", "Tafsir al-Tabari", "Tafsir al-Qurtubi", "Tafsir al-Sa\u2019di", "Sahih al-Bukhari", "Qur\u2019an") and `citation` (e.g. "2:255", "Hadith 4560").',
+    '- For every classical tafsir source you draw on (Ibn Kathir, al-Tabari, al-Qurtubi, al-Sa\u2019di, \u2026), include it as a reference and put a CONCISE key point / summary of what THAT source says about this ayah in `quote` (one or two sentences, in ' + langName + '), and omit `arabic`. Do not drop this per-source key point to save space.',
+    '- Whenever your explanation quotes or relies on ANOTHER Qur\u2019an verse or a hadith, include it as a reference too: put its ORIGINAL ARABIC text (complete and correct) in `arabic`, and put ONLY its ' + langName + ' translation/meaning in `quote`. Keep the Arabic and its translation SHORT and COMPLETE \u2014 omit them rather than cut them off mid-sentence, and never mix languages within a single field.',
+    '- Keep `summary`, `context`, and `reflections` entirely in ' + langName + ' with no raw Arabic; route every quoted verse or hadith (Arabic + its translation) into `references` instead.',
   ].join('\n');
 
   const userText = [
@@ -356,6 +381,10 @@ export async function fetchTefseer(input: {
     systemPrompt,
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     responseSchema: TEFSEER_SCHEMA,
+    // Tafsir is opened interactively while reading, so latency is felt
+    // directly. Fail over to the stable model after a single try rather than
+    // sitting through the full backoff schedule on an overloaded 3.5-flash.
+    maxAttempts: 2,
   });
   return {
     summary:     String(parsed.summary ?? '').trim(),
@@ -363,6 +392,20 @@ export async function fetchTefseer(input: {
     reflections: Array.isArray(parsed.reflections)
       ? parsed.reflections.map((r: unknown) => String(r).trim()).filter(Boolean)
       : [],
-    references:  Array.isArray(parsed.references) ? parsed.references : [],
+    references:  Array.isArray(parsed.references)
+      ? parsed.references
+          .map((r: any): TefseerReference => {
+            const ref: TefseerReference = {
+              source: String(r?.source ?? '').trim(),
+              citation: String(r?.citation ?? '').trim(),
+            };
+            const arabic = typeof r?.arabic === 'string' ? r.arabic.trim() : '';
+            const quote = typeof r?.quote === 'string' ? r.quote.trim() : '';
+            if (arabic) ref.arabic = arabic;
+            if (quote) ref.quote = quote;
+            return ref;
+          })
+          .filter((r: TefseerReference) => !!(r.source || r.citation))
+      : [],
   };
 }

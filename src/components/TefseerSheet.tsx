@@ -124,7 +124,7 @@ export function TefseerSheet(props: Props) {
                 </Pressable>
               </View>
             ) : result ? (
-              <TefseerBody result={result} label={label} copied={copied} onCopy={handleCopy} />
+              <TefseerBody result={result} label={label} copied={copied} onCopy={handleCopy} arabicFont={arabicFont} />
             ) : null}
           </ScrollView>
         </Animated.View>
@@ -136,11 +136,12 @@ export function TefseerSheet(props: Props) {
 // Structured result body: meaning → context → reflections → sources, with a
 // copy action + disclaimer footer. Split out so the sheet shell above stays
 // focused on layout/animation.
-function TefseerBody({ result, label, copied, onCopy }: {
+function TefseerBody({ result, label, copied, onCopy, arabicFont }: {
   result: TefseerResult;
   label: (text: string) => React.ReactNode;
   copied: boolean;
   onCopy: () => void;
+  arabicFont: string;
 }) {
   const t = useTheme();
   const s = useStrings();
@@ -189,6 +190,9 @@ function TefseerBody({ result, label, copied, onCopy }: {
                     {r.source}
                     <Text style={{ color: t.colors.textMuted, fontWeight: '500' }}>{' \u00b7 '}{r.citation}</Text>
                   </Text>
+                  {r.arabic ? (
+                    <Text allowFontScaling={false} style={{ color: t.colors.text, fontSize: 19, lineHeight: 34, textAlign: 'right', writingDirection: 'rtl', fontFamily: arabicFont, marginTop: 4 }}>{r.arabic}</Text>
+                  ) : null}
                   {r.quote ? (
                     <Text style={{ color: t.colors.textMuted, fontSize: 12, fontStyle: 'italic', marginTop: 2, lineHeight: 17 }}>{'\u201c'}{r.quote}{'\u201d'}</Text>
                   ) : null}
@@ -217,6 +221,13 @@ function tefseerToClipboard(r: TefseerResult): string {
   const lines: string[] = [r.summary.trim()];
   if (r.context) lines.push('', r.context.trim());
   if (r.reflections.length) { lines.push(''); r.reflections.forEach(x => lines.push(`\u2022 ${x}`)); }
-  if (r.references.length) { lines.push('', 'Sources:'); r.references.forEach(x => lines.push(`\u2022 ${x.source} \u00b7 ${x.citation}`)); }
+  if (r.references.length) {
+    lines.push('', 'Sources:');
+    r.references.forEach(x => {
+      lines.push(`\u2022 ${x.source} \u00b7 ${x.citation}`);
+      if (x.arabic) lines.push(`  ${x.arabic}`);
+      if (x.quote) lines.push(`  \u201c${x.quote}\u201d`);
+    });
+  }
   return lines.join('\n');
 }

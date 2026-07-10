@@ -15,7 +15,7 @@ import { GoalStep } from './GoalStep';
 import { NotificationStep } from './NotificationStep';
 import { FinishStep } from './FinishStep';
 
-// The four illustrated feature slides. Copy is stored as i18n keys and
+// The illustrated feature slides. Copy is stored as i18n keys and
 // resolved inside FeatureStep so the whole walkthrough stays translatable.
 const FEATURES: FeatureConfig[] = [
   {
@@ -34,6 +34,24 @@ const FEATURES: FeatureConfig[] = [
       { icon: 'headset-outline', key: 'onbFeatReciteB1' },
       { icon: 'recording-outline', key: 'onbFeatReciteB2' },
       { icon: 'checkmark-done-outline', key: 'onbFeatReciteB3' },
+    ],
+  },
+  {
+    icon: 'school-outline',
+    eyebrowKey: 'onbFeatHifzEyebrow', titleKey: 'onbFeatHifzTitle', subtitleKey: 'onbFeatHifzSubtitle',
+    bullets: [
+      { icon: 'musical-notes-outline', key: 'onbFeatHifzB1' },
+      { icon: 'repeat-outline', key: 'onbFeatHifzB2' },
+      { icon: 'trending-up-outline', key: 'onbFeatHifzB3' },
+    ],
+  },
+  {
+    icon: 'library-outline',
+    eyebrowKey: 'onbFeatTefseerEyebrow', titleKey: 'onbFeatTefseerTitle', subtitleKey: 'onbFeatTefseerSubtitle',
+    bullets: [
+      { icon: 'reader-outline', key: 'onbFeatTefseerB1' },
+      { icon: 'book-outline', key: 'onbFeatTefseerB2' },
+      { icon: 'language-outline', key: 'onbFeatTefseerB3' },
     ],
   },
   {
@@ -56,7 +74,8 @@ const FEATURES: FeatureConfig[] = [
   },
 ];
 
-const TOTAL = 11; // welcome + 4 features + name + display + reciter + goal + notif + finish
+// welcome + feature slides + name + display + reciter + goal + notif + finish
+const TOTAL = 1 + FEATURES.length + 6;
 
 // First-run walkthrough controller. Owns the step index, the sliding
 // enter animation and the shared chrome (back / skip / progress); each step
@@ -88,17 +107,16 @@ export function OnboardingFlow() {
   };
 
   const renderStep = () => {
-    switch (index) {
-      case 0: return <WelcomeStep nav={nav} />;
-      case 1: return <FeatureStep feature={FEATURES[0]} nav={nav} />;
-      case 2: return <FeatureStep feature={FEATURES[1]} nav={nav} />;
-      case 3: return <FeatureStep feature={FEATURES[2]} nav={nav} />;
-      case 4: return <FeatureStep feature={FEATURES[3]} nav={nav} />;
-      case 5: return <NameStep nav={nav} />;
-      case 6: return <DisplayStep nav={nav} />;
-      case 7: return <ReciterStep nav={nav} />;
-      case 8: return <GoalStep nav={nav} />;
-      case 9: return <NotificationStep nav={nav} />;
+    if (index === 0) return <WelcomeStep nav={nav} />;
+    // Steps 1..FEATURES.length are the illustrated feature slides.
+    if (index <= FEATURES.length) return <FeatureStep feature={FEATURES[index - 1]} nav={nav} />;
+    // Remaining steps are the setup flow, offset past the feature slides.
+    switch (index - FEATURES.length) {
+      case 1: return <NameStep nav={nav} />;
+      case 2: return <DisplayStep nav={nav} />;
+      case 3: return <ReciterStep nav={nav} />;
+      case 4: return <GoalStep nav={nav} />;
+      case 5: return <NotificationStep nav={nav} />;
       default: return <FinishStep nav={nav} />;
     }
   };
@@ -123,7 +141,7 @@ export function OnboardingFlow() {
           ) : <View style={{ width: 26 }} />}
         </View>
 
-        {/* Overall progress across the nine steps. */}
+        {/* Overall progress across the walkthrough steps. */}
         <View style={{ paddingBottom: t.spacing(2) }}>
           <ProgressBar progress={progress} />
         </View>
