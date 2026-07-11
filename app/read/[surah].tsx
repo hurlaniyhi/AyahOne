@@ -106,6 +106,9 @@ export default function VerseReader() {
   >(null);
   const [tefseerLoading, setTefseerLoading] = useState(false);
   const [tefseerError, setTefseerError] = useState<string | null>(null);
+  // Distinguishes a connectivity failure from a genuine error so the sheet can
+  // show the calm connect-then-retry card instead of the red error styling.
+  const [tefseerOffline, setTefseerOffline] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -279,6 +282,7 @@ export default function VerseReader() {
     const cacheKey = `${target.surah}:${target.ayah}:${settings.language}`;
     setTefseerLoading(true);
     setTefseerError(null);
+    setTefseerOffline(false);
     try {
       const result = await fetchTefseer({
         surah: target.surah,
@@ -291,6 +295,7 @@ export default function VerseReader() {
       setTefseer(cacheKey, result);
     } catch (e) {
       const code = e instanceof IslamicAiError ? e.code : 'http';
+      setTefseerOffline(code === 'network');
       setTefseerError(code === 'no-key' ? s.askApiKeyMissing : s.tefseerError);
     } finally {
       setTefseerLoading(false);
@@ -683,6 +688,7 @@ export default function VerseReader() {
         loading={tefseerLoading}
         result={tefseerResult}
         error={tefseerError}
+        offline={tefseerOffline}
         onRetry={retryTefseer}
         onClose={closeTefseer}
       />

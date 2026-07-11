@@ -18,6 +18,10 @@ interface Props {
   loading: boolean;
   result: TefseerResult | null;
   error: string | null;
+  // When the failure is a connectivity problem, the error card uses a calm
+  // "offline" treatment (brass, cloud icon, connect-then-retry copy) instead
+  // of the harsh red error styling reserved for genuine failures.
+  offline?: boolean;
   onRetry: () => void;
   onClose: () => void;
 }
@@ -26,7 +30,7 @@ interface Props {
 // translateY entry technique as HifzNoteSheet, adapted for scrollable,
 // structured content (meaning → context → reflections → sources).
 export function TefseerSheet(props: Props) {
-  const { visible, surahName, ayah, arabic, arabicFont, loading, result, error, onRetry, onClose } = props;
+  const { visible, surahName, ayah, arabic, arabicFont, loading, result, error, offline, onRetry, onClose } = props;
   const t = useTheme();
   const s = useStrings();
   const [copied, setCopied] = useState(false);
@@ -115,10 +119,24 @@ export function TefseerSheet(props: Props) {
                 <Text style={{ color: t.colors.textMuted, fontSize: 13 }}>{s.tefseerLoading}</Text>
               </View>
             ) : error ? (
-              <View style={{ alignItems: 'center', gap: t.spacing(3), paddingVertical: t.spacing(6) }}>
-                <Ionicons name="alert-circle-outline" size={28} color={t.colors.danger} />
-                <Text style={{ color: t.colors.danger, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>{error}</Text>
-                <Pressable onPress={onRetry} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2.5), borderRadius: t.radius.pill, backgroundColor: t.accent.primary, transform: [{ scale: pressed ? t.pressedScale : 1 }] })}>
+              <View style={{ alignItems: 'center', gap: t.spacing(3), paddingVertical: t.spacing(7), paddingHorizontal: t.spacing(4) }}>
+                <View style={{
+                  width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: offline ? t.colors.surfaceMuted : t.accent.primarySoft,
+                }}>
+                  <Ionicons
+                    name={offline ? 'cloud-offline-outline' : 'alert-circle-outline'}
+                    size={30}
+                    color={offline ? t.colors.brass : t.colors.danger}
+                  />
+                </View>
+                <Text style={{ color: t.colors.text, fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
+                  {offline ? s.tefseerOfflineTitle : s.tefseerTitle}
+                </Text>
+                <Text style={{ color: t.colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 300 }}>
+                  {offline ? s.tefseerOfflineMessage : error}
+                </Text>
+                <Pressable onPress={onRetry} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: t.spacing(1), paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2.5), borderRadius: t.radius.pill, backgroundColor: t.accent.primary, transform: [{ scale: pressed ? t.pressedScale : 1 }] })}>
                   <Ionicons name="refresh" size={15} color={t.accent.onPrimary} />
                   <Text style={{ color: t.accent.onPrimary, fontWeight: '700', fontSize: 13 }}>{s.tefseerRetry}</Text>
                 </Pressable>
