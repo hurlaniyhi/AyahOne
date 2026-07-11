@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -30,6 +30,7 @@ const BISMILLAH = '\u0628\u0650\u0633\u0652\u0645\u0650 \u0627\u0644\u0644\u0651
 
 export default function VerseReader() {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const s = useStrings();
   const router = useRouter();
   const params = useLocalSearchParams<{ surah: string; ayah?: string; nosave?: string; fromSearch?: string }>();
@@ -81,6 +82,9 @@ export default function VerseReader() {
   const [ayahs, setAyahs] = useState<Ayah[] | null>(null);
   const [idx, setIdx] = useState(startAyah - 1);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the offline Retry button to re-run the content load without
+  // changing the surah/translation/script inputs.
+  const [reloadKey, setReloadKey] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const lastTickRef = useRef<number>(Date.now());
   const verseEnterRef = useRef<number>(Date.now());
@@ -119,7 +123,7 @@ export default function VerseReader() {
     // startAyah intentionally excluded \u2014 only reset on surah change, not when
     // the deep-link ayah param flickers within the same surah.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surahNumber, settings.translationId, settings.arabicScript]);
+  }, [surahNumber, settings.translationId, settings.arabicScript, reloadKey]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -314,7 +318,7 @@ export default function VerseReader() {
   const closeTefseer = useCallback(() => setTefseerTarget(null), []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
       <View style={{ paddingHorizontal: t.spacing(4), paddingTop: t.spacing(2), gap: t.spacing(3), flex: 1 }}>
         {/* Top bar */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -449,7 +453,31 @@ export default function VerseReader() {
               </View>
             </View>
 
-            {error && <Text style={{ color: t.colors.danger }}>{error}</Text>}
+            {error && (
+              // The bundled default combo (Uthmani + Saheeh + transliteration)
+              // never reaches here — this only shows when a non-default
+              // script/translation needs its one-time download and the user is
+              // offline. Replaces the raw fetch error with a friendly retry.
+              <View style={{ alignItems: 'center', gap: t.spacing(3), paddingVertical: t.spacing(6) }}>
+                <Ionicons name="cloud-offline-outline" size={40} color={t.colors.textMuted} />
+                <Text style={{ color: t.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+                  {s.offlineTitle}
+                </Text>
+                <Text style={{ color: t.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>
+                  {s.offlineMessage}
+                </Text>
+                <Pressable
+                  onPress={() => setReloadKey(k => k + 1)}
+                  hitSlop={8}
+                  style={{
+                    marginTop: t.spacing(1),
+                    paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(2.5),
+                    borderRadius: t.radius.pill, backgroundColor: t.colors.surfaceMuted,
+                  }}>
+                  <Text style={{ color: t.colors.brass, fontWeight: '700', fontSize: 14 }}>{s.offlineRetry}</Text>
+                </Pressable>
+              </View>
+            )}
             {!ayahs && !error && <ActivityIndicator color={t.accent.primary} />}
 
             {showBismillah && (
@@ -601,7 +629,7 @@ export default function VerseReader() {
             </View>
           </Animated.View>
         )}
-        <View style={{ paddingHorizontal: t.spacing(4), paddingBottom: t.spacing(5), paddingTop: t.spacing(2) }}>
+        <View style={{ paddingHorizontal: t.spacing(4), paddingBottom: Math.max(t.spacing(5), insets.bottom + t.spacing(2)), paddingTop: t.spacing(2) }}>
           <GlassDock radius={28} style={{ flexDirection: 'row', alignItems: 'center', padding: t.spacing(2), gap: t.spacing(2) }}>
             <Pressable
               onPress={goPrev}

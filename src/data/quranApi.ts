@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FALLBACK } from './fallback';
+import { OFFLINE_QURAN_MODULES } from './offlineQuranManifest';
 import { stripTajweed } from '@/lib/tajweed';
 
 export interface Ayah {
@@ -72,6 +73,22 @@ async function saveToStorage(key: string, data: SurahContent): Promise<void> {
   }
 }
 
+// The app ships the DEFAULT combo (Uthmani + Saheeh International + Latin
+// transliteration) for all 114 surahs via offlineQuranManifest, so first-time
+// users can read the whole Qur'an with no network. Only that exact combo is
+// bundled; any other script/translation stays download-on-demand. The manifest
+// require()s each surah lazily, so a lookup only pulls the one JSON into memory.
+function loadBundled(surah: number, translation: string, script: ArabicScriptId): SurahContent | null {
+  if (translation !== DEFAULT_TRANSLATION || script !== DEFAULT_SCRIPT) return null;
+  const load = OFFLINE_QURAN_MODULES[surah];
+  if (!load) return null;
+  try {
+    return load();
+  } catch {
+    return null;
+  }
+}
+
 interface AyahPayload {
   text: string;
   page?: number;
@@ -99,6 +116,16 @@ export async function getSurahContent(
   if (stored) {
     memCache.set(key, stored);
     return stored;
+  }
+
+  // Serve the bundled default combo before hitting the network so first-time /
+  // offline users read instantly. A previously downloaded copy (found above in
+  // storage) still wins; anything past this point is a non-bundled combo or a
+  // refresh once online.
+  const bundled = loadBundled(surah, translation, script);
+  if (bundled) {
+    memCache.set(key, bundled);
+    return bundled;
   }
 
   try {

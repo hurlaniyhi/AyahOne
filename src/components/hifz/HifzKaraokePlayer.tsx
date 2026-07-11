@@ -13,7 +13,7 @@ import { useHifzRepeatController, type HifzRepeatMode } from '@/lib/useHifzRepea
 import { InlineNotice } from '@/components/InlineNotice';
 import { formatMs } from '@/components/recitation/RecordButton';
 
-type Status = 'idle' | 'loading' | 'ready' | 'error';
+type Status = 'idle' | 'loading' | 'ready' | 'error' | 'offline';
 
 const REPEAT_OPTIONS: HifzRepeatMode[] = ['off', 3, 5, 10, 'forever'];
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5];
@@ -37,6 +37,10 @@ export function HifzKaraokePlayer({ surah, ayah, reciterId, onActiveWordChange }
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [speed, setSpeed] = useState(1);
+  // Bumped every time a fresh play is requested so retrying after reconnecting
+  // replays even when the (bundled) URL is identical to the one that failed
+  // offline — see VerseAudioListen for the same pattern.
+  const [playToken, setPlayToken] = useState(0);
 
   const karaokeData = useMemo(() => getKaraokeAyahData(reciterId, surah, ayah), [reciterId, surah, ayah]);
 
@@ -46,7 +50,10 @@ export function HifzKaraokePlayer({ surah, ayah, reciterId, onActiveWordChange }
   // loop; expo-audio's updateInterval option handles the sampling itself.
   const player = useAudioPlayer(audioUrl, { updateInterval: 100 });
   const playerStatus = useAudioPlayerStatus(player);
-  const toggle = useTogglePlayback(player, playerStatus, () => setStatus('error'));
+  // Karaoke audio always streams from audio.qurancdn.com, so a playback
+  // failure is a connectivity problem — surface it as offline, not a generic
+  // error, matching the streaming players.
+  const toggle = useTogglePlayback(player, playerStatus, () => setStatus('offline'));
   const { repeatMode, setRepeatMode, repsDone, reset: resetRepeat } = useHifzRepeatController(player, playerStatus, status, speed);
 
   useEffect(() => {
@@ -57,10 +64,35 @@ export function HifzKaraokePlayer({ surah, ayah, reciterId, onActiveWordChange }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surah, ayah, reciterId]);
 
+  // player.replace() is essential for the offline→reconnect retry: expo-audio
+  // caches the failed/unloaded state on the player instance, and since the URL
+  // is unchanged useAudioPlayer won't rebuild the player, so a bare play()
+  // would just replay the cached failure. replace() forces a fresh fetch of
+  // the (same) source so it actually downloads once the network is back.
   useEffect(() => {
-    if (audioUrl) void toggle();
+    if (playToken > 0 && audioUrl) {
+      player.replace(audioUrl);
+      void toggle();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioUrl]);
+  }, [playToken]);
+
+  // Offline watchdog. Unlike HifzAudioPlayer (whose getAyahAudioUrl fetch
+  // throws immediately when offline), this player streams a *bundled* URL, so
+  // load() always "succeeds" and the failure only shows up when expo-audio
+  // silently can't fetch the remote mp3 — player.play() is fire-and-forget and
+  // never throws for that, so useTogglePlayback's onError never fires. Detect
+  // it here: once a play is requested, if after a grace period the audio still
+  // hasn't loaded and isn't playing, treat it as offline so the same
+  // connect-to-listen message + retry shows as for memorized ayahs.
+  useEffect(() => {
+    if (playToken === 0 || status !== 'ready') return;
+    if (playerStatus.isLoaded || playerStatus.playing) return;
+    const id = setTimeout(() => {
+      if (!playerStatus.isLoaded && !playerStatus.playing) setStatus('offline');
+    }, 6000);
+    return () => clearTimeout(id);
+  }, [playToken, status, playerStatus.isLoaded, playerStatus.playing]);
 
   useEffect(() => {
     if (status === 'ready') player.setPlaybackRate(speed);
@@ -80,6 +112,7 @@ export function HifzKaraokePlayer({ surah, ayah, reciterId, onActiveWordChange }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAudioUrl(karaokeData.audioUrl);
     setStatus('ready');
+    setPlayToken(n => n + 1);
   };
 
   const reciterName = RECITERS.find(r => r.id === reciterId)?.name ?? '';
@@ -87,11 +120,21 @@ export function HifzKaraokePlayer({ surah, ayah, reciterId, onActiveWordChange }
   const remainingMs = playerStatus.duration > 0
     ? Math.max(0, (playerStatus.duration - playerStatus.currentTime) * 1000)
     : 0;
+  // The mp3 is still downloading/buffering: a play was requested but the audio
+  // isn't playing yet and hasn't finished loading (or is actively re-buffering
+  // mid-stream). Drives the spinner inside the play circle. Once paused after
+  // load, isLoaded stays true, so this is false and the play icon returns.
+  const buffering = playToken > 0 && !playerStatus.playing && (playerStatus.isBuffering || !playerStatus.isLoaded);
 
-  if (status === 'error') {
+  if (status === 'offline' || status === 'error') {
+    const offline = status === 'offline';
     return (
       <View style={{ gap: t.spacing(2) }}>
-        <InlineNotice tone="danger" icon="alert-circle-outline" text={s.audioError} />
+        <InlineNotice
+          tone={offline ? 'warning' : 'danger'}
+          icon={offline ? 'cloud-offline-outline' : 'alert-circle-outline'}
+          text={offline ? `${s.audioOfflineTitle} — ${s.audioOfflineMessage}` : s.audioError}
+        />
         <Pressable
           onPress={load}
           style={({ pressed }) => ({
@@ -141,13 +184,18 @@ export function HifzKaraokePlayer({ surah, ayah, reciterId, onActiveWordChange }
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
         <Pressable
           onPress={toggle}
+          disabled={buffering}
           style={({ pressed }) => ({
             width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
             backgroundColor: t.accent.primary,
             transform: [{ scale: pressed ? t.pressedScale : 1 }],
           })}
         >
-          <Ionicons name={playerStatus.playing ? 'pause' : 'play'} size={16} color={t.accent.onPrimary} />
+          {buffering ? (
+            <ActivityIndicator size="small" color={t.accent.onPrimary} />
+          ) : (
+            <Ionicons name={playerStatus.playing ? 'pause' : 'play'} size={16} color={t.accent.onPrimary} />
+          )}
         </Pressable>
         <View style={{ flex: 1, height: 5, borderRadius: 2.5, backgroundColor: t.colors.border }}>
           <View style={{ height: 5, width: `${Math.round(playbackProgress * 100)}%`, borderRadius: 2.5, backgroundColor: t.accent.primary }} />

@@ -11,7 +11,7 @@ const PAUSE_BETWEEN_REPEATS_MS = 700;
 export function useHifzRepeatController(
   player: AudioPlayer,
   playerStatus: AudioStatus,
-  status: 'idle' | 'loading' | 'ready' | 'error',
+  status: 'idle' | 'loading' | 'ready' | 'error' | 'offline',
   speed: number,
 ) {
   const [repeatMode, setRepeatModeRaw] = useState<HifzRepeatMode>('off');

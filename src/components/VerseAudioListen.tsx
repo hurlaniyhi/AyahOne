@@ -5,12 +5,12 @@ import * as Haptics from 'expo-haptics';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
-import { getAyahAudioUrl, RECITERS } from '@/data/quranAudio';
+import { getAyahAudioUrl, isOfflineError, RECITERS } from '@/data/quranAudio';
 import { useTogglePlayback } from '@/lib/useTogglePlayback';
 import { InlineNotice } from '@/components/InlineNotice';
 import { formatMs } from '@/components/recitation/RecordButton';
 
-type Status = 'idle' | 'loading' | 'ready' | 'error';
+type Status = 'idle' | 'loading' | 'ready' | 'error' | 'offline';
 
 interface Props {
   surah: number;
@@ -25,10 +25,18 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
   const s = useStrings();
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
+  // Bumped every time a fresh play is requested. The play effect keys on this
+  // rather than on `audioUrl` alone, so retrying after reconnecting replays
+  // even when the resolved URL is identical to the one that failed offline
+  // (setting the same URL wouldn't re-fire an audioUrl-only effect).
+  const [playToken, setPlayToken] = useState(0);
 
   const player = useAudioPlayer(audioUrl);
   const playerStatus = useAudioPlayerStatus(player);
-  const toggle = useTogglePlayback(player, playerStatus, () => setStatus('error'));
+  // Recitation audio is always streamed (never bundled), so a playback failure
+  // — even with a URL already resolved — is a connectivity problem. Surface it
+  // as offline so the connect-to-listen message shows instead of a generic error.
+  const toggle = useTogglePlayback(player, playerStatus, () => setStatus('offline'));
 
   // Audio always corresponds to what's on screen — stop and forget the
   // previous take the moment the ayah (or reciter) changes.
@@ -40,10 +48,34 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
   // Once the fetched URL lands, the player above has already been
   // reconstructed with it (useAudioPlayer recreates synchronously during
   // render when its source changes) — safe to start playback here.
+  //
+  // player.replace() is essential for the offline→reconnect retry: expo-audio
+  // caches the failed/unloaded state on the player instance, and since the URL
+  // is unchanged useAudioPlayer won't rebuild the player, so a bare play()
+  // would just replay the cached failure. replace() forces a fresh fetch of
+  // the (same) source so it actually downloads once the network is back.
   useEffect(() => {
-    if (audioUrl) void toggle();
+    if (playToken > 0 && audioUrl) {
+      player.replace(audioUrl);
+      void toggle();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioUrl]);
+  }, [playToken]);
+
+  // Offline watchdog for the case where the audio URL was cached before going
+  // offline: getAyahAudioUrl then succeeds from cache, so load() reaches
+  // playback, but expo-audio silently can't fetch the remote mp3 and
+  // player.play() never throws. If a requested play hasn't loaded or started
+  // after a grace period, surface it as offline. (A fresh, uncached fetch
+  // already fails earlier in load()'s catch.)
+  useEffect(() => {
+    if (playToken === 0 || status !== 'ready') return;
+    if (playerStatus.isLoaded || playerStatus.playing) return;
+    const id = setTimeout(() => {
+      if (!playerStatus.isLoaded && !playerStatus.playing) setStatus('offline');
+    }, 6000);
+    return () => clearTimeout(id);
+  }, [playToken, status, playerStatus.isLoaded, playerStatus.playing]);
 
   const load = async () => {
     setStatus('loading');
@@ -52,8 +84,10 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
       const url = await getAyahAudioUrl(surah, ayah, reciterId);
       setAudioUrl(url);
       setStatus('ready');
-    } catch {
-      setStatus('error');
+      // Request playback via the token so an unchanged URL still replays.
+      setPlayToken(n => n + 1);
+    } catch (e) {
+      setStatus(isOfflineError(e) ? 'offline' : 'error');
     }
   };
 
@@ -62,11 +96,21 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
   const remainingMs = playerStatus.duration > 0
     ? Math.max(0, (playerStatus.duration - playerStatus.currentTime) * 1000)
     : 0;
+  // The mp3 is still downloading/buffering: a play was requested but the audio
+  // isn't playing yet and hasn't finished loading (or is actively re-buffering
+  // mid-stream). Drives the spinner inside the play circle. Once paused after
+  // load, isLoaded stays true, so this is false and the play icon returns.
+  const buffering = playToken > 0 && !playerStatus.playing && (playerStatus.isBuffering || !playerStatus.isLoaded);
 
-  if (status === 'error') {
+  if (status === 'offline' || status === 'error') {
+    const offline = status === 'offline';
     return (
       <View style={{ gap: t.spacing(2) }}>
-        <InlineNotice tone="danger" icon="alert-circle-outline" text={s.audioError} />
+        <InlineNotice
+          tone={offline ? 'warning' : 'danger'}
+          icon={offline ? 'cloud-offline-outline' : 'alert-circle-outline'}
+          text={offline ? `${s.audioOfflineTitle} — ${s.audioOfflineMessage}` : s.audioError}
+        />
         <Pressable
           onPress={load}
           style={({ pressed }) => ({
@@ -116,13 +160,18 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
         <Pressable
           onPress={toggle}
+          disabled={buffering}
           style={({ pressed }) => ({
             width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
             backgroundColor: t.accent.primary,
             transform: [{ scale: pressed ? t.pressedScale : 1 }],
           })}
         >
-          <Ionicons name={playerStatus.playing ? 'pause' : 'play'} size={16} color={t.accent.onPrimary} />
+          {buffering ? (
+            <ActivityIndicator size="small" color={t.accent.onPrimary} />
+          ) : (
+            <Ionicons name={playerStatus.playing ? 'pause' : 'play'} size={16} color={t.accent.onPrimary} />
+          )}
         </Pressable>
         <View style={{ flex: 1, height: 5, borderRadius: 2.5, backgroundColor: t.colors.border }}>
           <View style={{ height: 5, width: `${Math.round(playbackProgress * 100)}%`, borderRadius: 2.5, backgroundColor: t.accent.primary }} />

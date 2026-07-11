@@ -85,3 +85,21 @@ export async function getAyahAudioUrl(surah: number, numberInSurah: number, reci
   if (!url) throw new Error(`No audio found for ${surah}:${numberInSurah} (${reciterId})`);
   return url;
 }
+
+// A failed audio fetch is almost always a connectivity problem: recitation
+// audio is never bundled, so the only reason getAyahAudioUrl throws (short of
+// a bad reciter id) is that the alquran.cloud request couldn't reach the
+// network. React Native surfaces that as a TypeError whose message contains
+// "Network request failed"; treat that (and generic fetch/abort failures) as
+// offline so the UI can show the connect-to-listen message instead of a
+// generic error.
+export function isOfflineError(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err).toLowerCase();
+  return (
+    msg.includes('network request failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network error') ||
+    msg.includes('timeout') ||
+    msg.includes('abort')
+  );
+}

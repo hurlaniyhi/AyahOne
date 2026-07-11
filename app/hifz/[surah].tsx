@@ -64,6 +64,9 @@ export default function HifzPracticeScreen() {
 
   const [ayahs, setAyahs] = useState<Ayah[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by the offline Retry button to re-run the content load without
+  // changing the surah/translation inputs.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -73,7 +76,7 @@ export default function HifzPracticeScreen() {
       .then(c => { if (alive) setAyahs(c.ayahs); })
       .catch(e => { if (alive) setLoadError(String(e?.message ?? e)); });
     return () => { alive = false; };
-  }, [surahNumber, settings.translationId]);
+  }, [surahNumber, settings.translationId, reloadKey]);
 
   // Session queue: due-only when entered from the hub's "Due for Review"
   // row, otherwise every ayah in the surah in natural reading order (the
@@ -250,8 +253,29 @@ export default function HifzPracticeScreen() {
           </View>
         )}
         {loadError && (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: t.colors.danger }}>{loadError}</Text>
+          // Mirrors the reading screen's offline UI (app/read/[surah].tsx):
+          // the bundled default combo (Uthmani + Saheeh) never reaches here —
+          // this only shows when a non-default translation needs its one-time
+          // download and the user is offline. Replaces the raw fetch error
+          // with a friendly retry.
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing(3), paddingHorizontal: t.spacing(6) }}>
+            <Ionicons name="cloud-offline-outline" size={40} color={t.colors.textMuted} />
+            <Text style={{ color: t.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+              {s.offlineTitle}
+            </Text>
+            <Text style={{ color: t.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>
+              {s.offlineMessage}
+            </Text>
+            <Pressable
+              onPress={() => setReloadKey(k => k + 1)}
+              hitSlop={8}
+              style={{
+                marginTop: t.spacing(1),
+                paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(2.5),
+                borderRadius: t.radius.pill, backgroundColor: t.colors.surfaceMuted,
+              }}>
+              <Text style={{ color: t.colors.brass, fontWeight: '700', fontSize: 14 }}>{s.offlineRetry}</Text>
+            </Pressable>
           </View>
         )}
 
