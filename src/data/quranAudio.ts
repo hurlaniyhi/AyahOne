@@ -27,6 +27,7 @@ export const RECITERS: Reciter[] = [
   { id: 'ar.hudhaify', name: 'Ali Al-Hudhaify', style: 'Murattal' },
   { id: 'ar.shaatree', name: 'Abu Bakr Al-Shatri', style: 'Murattal' },
   { id: 'ar.ahmedajamy', name: 'Ahmed Al-Ajmy', style: 'Murattal' },
+  { id: 'ar.muhammadayyoub', name: 'Muhammad Ayyub', style: 'Murattal' },
 ];
 
 export const DEFAULT_RECITER_ID = 'ar.alafasy';
