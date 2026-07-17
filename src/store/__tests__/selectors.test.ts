@@ -1,6 +1,9 @@
-import { weekdaySeriesFor } from '../selectors';
+import * as React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
+import { weekdaySeriesFor, useHifzTodaysGoal, type HifzTodaysGoal } from '../selectors';
 import { todayKey } from '@/lib/format';
-import type { BucketStats } from '../appStore';
+import { useAppStore, type BucketStats } from '../appStore';
+import type { HifzAyahState } from '@/lib/hifz';
 
 // Helper: build a daily map where the seven days of the calendar week
 // containing `anchor` are keyed Mon..Sun with the supplied verses counts.
@@ -84,5 +87,66 @@ describe('weekdaySeriesFor', () => {
     };
     expect(weekdaySeriesFor(daily, 'hasanat', tue)).toEqual([100, 200, 0, 0, 0, 0, 0]);
     expect(weekdaySeriesFor(daily, 'timeSec', tue)).toEqual([60, 120, 0, 0, 0, 0, 0]);
+  });
+});
+
+// A minimal memorized-ayah state — only the fields useHifzTodaysGoal reads
+// (lastReviewedAt, via todayKey) matter; the rest satisfy the type.
+function memorized(): HifzAyahState {
+  return {
+    intervalDays: 7, easeFactor: 2, strength: 'reviewing',
+    dueDate: '2999-01-01', lastReviewedAt: '2020-01-01T00:00:00.000Z',
+    reviewCount: 1, lapses: 0,
+  };
+}
+
+// Render the hook via a tiny host component and return its latest value.
+function renderTodaysGoal(): HifzTodaysGoal | null {
+  let captured: HifzTodaysGoal | null = null;
+  function Host() { captured = useHifzTodaysGoal(); return null; }
+  act(() => { TestRenderer.create(React.createElement(Host)); });
+  return captured;
+}
+
+describe('useHifzTodaysGoal — verification anchoring', () => {
+  // Snapshot & restore the store so these tests don't leak into each other.
+  const snapshot = useAppStore.getState();
+  afterEach(() => { act(() => { useAppStore.setState(snapshot, true); }); });
+
+  // Scope to Surah 112 (Al-Ikhlas, 4 ayahs), 4 verses/day, all 4 memorized.
+  function seedAllMemorized(verify: boolean) {
+    act(() => {
+      useAppStore.setState({
+        hifzGoalType: 'surahs', hifzVersesPerDay: 4, hifzGoalSurahs: [112],
+        hifzProgress: { '112:1': memorized(), '112:2': memorized(), '112:3': memorized(), '112:4': memorized() },
+        hifzVerifyRecitation: verify, hifzVerified: {},
+      });
+    });
+  }
+
+  it('with verification off, a fully-memorized scope yields no new goal', () => {
+    seedAllMemorized(false);
+    expect(renderTodaysGoal()).toBeNull();
+  });
+
+  it('with verification on, an unverified memorized run stays the current goal', () => {
+    seedAllMemorized(true); // memorized but none verified
+    const goal = renderTodaysGoal();
+    expect(goal).toEqual(expect.objectContaining({ surah: 112, startAyah: 1, endAyah: 4 }));
+  });
+
+  it('anchors to the first unverified ayah, not the next unmemorized one', () => {
+    seedAllMemorized(true);
+    act(() => { useAppStore.setState({ hifzVerified: { '112:1': true } }); }); // ayah 1 verified
+    const goal = renderTodaysGoal();
+    expect(goal).toEqual(expect.objectContaining({ surah: 112, startAyah: 2, endAyah: 4 }));
+  });
+
+  it('returns null once every ayah in scope is verified', () => {
+    seedAllMemorized(true);
+    act(() => {
+      useAppStore.setState({ hifzVerified: { '112:1': true, '112:2': true, '112:3': true, '112:4': true } });
+    });
+    expect(renderTodaysGoal()).toBeNull();
   });
 });

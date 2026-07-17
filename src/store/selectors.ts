@@ -223,6 +223,8 @@ export function useHifzTodaysGoal(): HifzTodaysGoal | null {
   const versesPerDay = useAppStore(s => s.hifzVersesPerDay);
   const goalSurahs = useAppStore(s => s.hifzGoalSurahs);
   const progress = useAppStore(s => s.hifzProgress);
+  const verifyRecitation = useAppStore(s => s.hifzVerifyRecitation);
+  const verified = useAppStore(s => s.hifzVerified);
 
   return useMemo(() => {
     if (!goalType) return null;
@@ -242,7 +244,14 @@ export function useHifzTodaysGoal(): HifzTodaysGoal | null {
       scope.push(...ayahsInJuz(30)); // Juz Amma
     }
 
-    const firstNewIndex = scope.findIndex(({ surah, ayah }) => !progress[`${surah}:${ayah}`]);
+    // When verification is on, an ayah only counts as "done" once its
+    // recitation has also been verified — so a memorized-but-unverified run
+    // stays the current goal, and leaving the verification screen and coming
+    // back re-opens the same range instead of skipping ahead.
+    const isDone = ({ surah, ayah }: { surah: number; ayah: number }) =>
+      !!progress[`${surah}:${ayah}`] && (!verifyRecitation || !!verified[`${surah}:${ayah}`]);
+
+    const firstNewIndex = scope.findIndex(a => !isDone(a));
     if (firstNewIndex === -1) return null;
 
     const start = scope[firstNewIndex];
@@ -251,7 +260,7 @@ export function useHifzTodaysGoal(): HifzTodaysGoal | null {
     for (let i = firstNewIndex + 1; i < scope.length && count < versesPerDay; i++) {
       const next = scope[i];
       if (next.surah !== start.surah) break;
-      if (progress[`${next.surah}:${next.ayah}`]) break;
+      if (isDone(next)) break;
       endAyah = next.ayah;
       count++;
     }
@@ -264,7 +273,7 @@ export function useHifzTodaysGoal(): HifzTodaysGoal | null {
     }
 
     return { surah: start.surah, startAyah: start.ayah, endAyah, target: versesPerDay, doneToday };
-  }, [goalType, versesPerDay, goalSurahs, progress]);
+  }, [goalType, versesPerDay, goalSurahs, progress, verifyRecitation, verified]);
 }
 
 /**
