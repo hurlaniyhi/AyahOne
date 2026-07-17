@@ -258,45 +258,47 @@ export default function QuranDisplayScreen() {
                 key={reciter.id}
                 onPress={() => setSetting('reciterId', reciter.id)}
                 style={{
-                  flexDirection: 'row', alignItems: 'center', gap: t.spacing(3),
                   padding: t.spacing(4), borderRadius: t.radius.lg,
                   backgroundColor: t.colors.surface,
                   borderWidth: active ? 1.5 : 0.75,
                   borderColor: active ? t.accent.primary : t.colors.hairline,
+                  gap: t.spacing(3),
                 }}
               >
-                <Pressable
-                  onPress={() => handlePreview(reciter.id)}
-                  hitSlop={8}
-                  style={({ pressed }) => ({
-                    width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: t.colors.surfaceMuted,
-                    transform: [{ scale: pressed ? t.pressedScale : 1 }],
-                  })}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator size="small" color={t.accent.primary} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
+                  <Pressable
+                    onPress={() => handlePreview(reciter.id)}
+                    hitSlop={8}
+                    style={({ pressed }) => ({
+                      width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: t.colors.surfaceMuted,
+                      transform: [{ scale: pressed ? t.pressedScale : 1 }],
+                    })}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator size="small" color={t.accent.primary} />
+                    ) : (
+                      <Ionicons
+                        name={isPreviewing && previewStatus.playing ? 'pause' : 'play'}
+                        size={16}
+                        color={t.accent.primary}
+                      />
+                    )}
+                  </Pressable>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: active ? t.accent.primary : t.colors.text, fontWeight: '700', fontSize: 15 }}>
+                      {reciter.name}
+                    </Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{reciter.style}</Text>
+                  </View>
+
+                  {active ? (
+                    <Ionicons name="checkmark-circle" size={22} color={t.accent.primary} />
                   ) : (
-                    <Ionicons
-                      name={isPreviewing && previewStatus.playing ? 'pause' : 'play'}
-                      size={16}
-                      color={t.accent.primary}
-                    />
+                    <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: t.colors.border }} />
                   )}
-                </Pressable>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: active ? t.accent.primary : t.colors.text, fontWeight: '700', fontSize: 15 }}>
-                    {reciter.name}
-                  </Text>
-                  <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{reciter.style}</Text>
                 </View>
-
-                {active ? (
-                  <Ionicons name="checkmark-circle" size={22} color={t.accent.primary} />
-                ) : (
-                  <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: t.colors.border }} />
-                )}
               </Pressable>
             );
           })}

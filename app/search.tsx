@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, FlatList, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { searchCached, type SearchHit } from '@/data/quranApi';
@@ -31,8 +31,21 @@ export default function SearchScreen() {
     setHits(text.trim() ? searchCached(text) : []);
   };
 
+  // Arabic is the default; the input flips to LTR only once the user starts
+  // typing Latin characters (transliteration search).
+  const isLatinQuery = q.trim().length > 0 && !/[\u0600-\u06FF]/.test(q);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }}>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable onPress={() => router.back()} hitSlop={12} style={{ paddingHorizontal: t.spacing(1) }}>
+              <Ionicons name="close" size={26} color={t.colors.text} />
+            </Pressable>
+          ),
+        }}
+      />
       <View style={{ padding: t.spacing(4), gap: t.spacing(3), flex: 1 }}>
         <View style={{
           flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
@@ -49,7 +62,8 @@ export default function SearchScreen() {
             placeholderTextColor={t.colors.textMuted}
             style={{
               flex: 1, color: t.colors.text, fontSize: 16,
-              textAlign: 'right', writingDirection: 'rtl',
+              textAlign: isLatinQuery ? 'left' : 'right',
+              writingDirection: isLatinQuery ? 'ltr' : 'rtl',
             }}
           />
         </View>
@@ -98,6 +112,11 @@ export default function SearchScreen() {
                   >
                     {stripTajweed(item.arabic)}
                   </Text>
+                  {isLatinQuery && item.transliteration ? (
+                    <Text style={{ color: t.colors.textMuted, fontStyle: 'italic' }} numberOfLines={2}>
+                      {item.transliteration}
+                    </Text>
+                  ) : null}
                   {item.translation ? (
                     <Text style={{ color: t.colors.textMuted }} numberOfLines={2}>{item.translation}</Text>
                   ) : null}

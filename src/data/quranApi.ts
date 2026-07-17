@@ -214,17 +214,40 @@ function normalizeArabicShort(s: string): string {
   return foldLetters(s.replace(DAGGER_ALEFS_RE, ''));
 }
 
+// Latin-script (transliteration) search. Arabic remains the default: only when
+// the query contains no Arabic letters do we fall back to matching against each
+// ayah's `transliteration` field. We lowercase and strip everything that isn't
+// an a-z letter or a space so users can type "ar rahman", "Ar-Rahmaan", or
+// "arrahman" and still hit "Ar-Rahmani" - the transliteration corpus uses mixed
+// case, diacritics, apostrophes and hyphens that would otherwise block a match.
+const ARABIC_LETTER_RE = /[\u0600-\u06FF]/;
+const NON_LATIN_RE = /[^a-z ]/g;
+
+function normalizeLatin(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(NON_LATIN_RE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export interface SearchHit {
   surah: number;
   ayah: number;
   arabic: string;
   translation: string;
+  transliteration: string;
 }
 
 export function searchCached(query: string): SearchHit[] {
+  // Arabic is the default mode. Switch to transliteration matching only when
+  // the query has no Arabic letters (i.e. the user typed Latin characters).
+  const isArabicQuery = ARABIC_LETTER_RE.test(query);
+
   const qLong = normalizeArabicLong(query);
   const qShort = normalizeArabicShort(query);
-  if (!qLong && !qShort) return [];
+  const qLatin = isArabicQuery ? '' : normalizeLatin(query);
+  if (!qLong && !qShort && !qLatin) return [];
   const hits: SearchHit[] = [];
   // The same surah can live in memCache under several keys (different
   // translation and/or script), so a single ayah would otherwise be pushed
@@ -235,11 +258,17 @@ export function searchCached(query: string): SearchHit[] {
   memCache.forEach(content => {
     if (!content || !Array.isArray(content.ayahs)) return;
     content.ayahs.forEach(a => {
-      // Hit if either folding pair matches \u2014 covers both modern short and
-      // Uthmani long spellings (see comment block above for rationale).
-      const longHit = !!qLong && normalizeArabicLong(a.arabic).includes(qLong);
-      const shortHit = !longHit && !!qShort && normalizeArabicShort(a.arabic).includes(qShort);
-      if (longHit || shortHit) {
+      let match = false;
+      if (isArabicQuery) {
+        // Hit if either folding pair matches - covers both modern short and
+        // Uthmani long spellings (see comment block above for rationale).
+        const longHit = !!qLong && normalizeArabicLong(a.arabic).includes(qLong);
+        const shortHit = !longHit && !!qShort && normalizeArabicShort(a.arabic).includes(qShort);
+        match = longHit || shortHit;
+      } else {
+        match = !!qLatin && normalizeLatin(a.transliteration).includes(qLatin);
+      }
+      if (match) {
         const dedupeKey = `${content.number}:${a.numberInSurah}`;
         if (seen.has(dedupeKey)) return;
         seen.add(dedupeKey);
@@ -248,6 +277,7 @@ export function searchCached(query: string): SearchHit[] {
           ayah: a.numberInSurah,
           arabic: a.arabic,
           translation: a.translation,
+          transliteration: a.transliteration,
         });
       }
     });

@@ -27,10 +27,25 @@ export function VersePickerSheet({ visible, totalVerses, selectedVerse, onClose,
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }}>
         <View style={{ padding: t.spacing(4), gap: t.spacing(3), flex: 1 }}>
-          <View style={{
-            alignSelf: 'center', width: 48, height: 5, borderRadius: 3,
-            backgroundColor: t.mode === 'dark' ? '#6B7280' : '#9CA3AF',
-          }} />
+          <View style={{ height: 32, justifyContent: 'center' }}>
+            <View style={{
+              alignSelf: 'center', width: 48, height: 5, borderRadius: 3,
+              backgroundColor: t.mode === 'dark' ? '#6B7280' : '#9CA3AF',
+            }} />
+            <Pressable
+              onPress={onClose}
+              hitSlop={12}
+              style={{
+                position: 'absolute', right: 0, top: 0,
+                width: 32, height: 32, borderRadius: 16,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: t.colors.surface,
+                borderWidth: 1, borderColor: t.colors.border,
+              }}
+            >
+              <Ionicons name="close" size={20} color={t.colors.text} />
+            </Pressable>
+          </View>
           <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 20, textAlign: 'center' }}>{s.selectVerse}</Text>
 
           <View style={{

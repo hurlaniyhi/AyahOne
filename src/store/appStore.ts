@@ -305,7 +305,8 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
 type Actions = Pick<AppState,
   'setSetting' | 'setProfileName' | 'setProfilePhoto' | 'completeOnboarding' | 'setLastRead' | 'setDailyGoal' |
   'recordVerseRead' | 'recordSurahProgress' | 'toggleFavorite' | 'toggleBookmark' |
-  'setPrecache' | 'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
+  'setPrecache' |
+  'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt' |
   'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah' | 'setHifzGoal' | 'setHifzNote' |
   'setTefseer'>;
