@@ -42,10 +42,25 @@ export function GoalEditSheet({ visible, onClose }: Props) {
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }}>
         <ScrollView contentContainerStyle={{ padding: t.spacing(4), gap: t.spacing(3) }}>
-          <View style={{
-            alignSelf: 'center', width: 48, height: 5, borderRadius: 3,
-            backgroundColor: t.mode === 'dark' ? '#6B7280' : '#9CA3AF',
-          }} />
+          <View style={{ height: 32, justifyContent: 'center' }}>
+            <View style={{
+              alignSelf: 'center', width: 48, height: 5, borderRadius: 3,
+              backgroundColor: t.mode === 'dark' ? '#6B7280' : '#9CA3AF',
+            }} />
+            <Pressable
+              onPress={onClose}
+              hitSlop={12}
+              style={{
+                position: 'absolute', right: 0, top: 0,
+                width: 32, height: 32, borderRadius: 16,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: t.colors.surface,
+                borderWidth: 1, borderColor: t.colors.border,
+              }}
+            >
+              <Ionicons name="close" size={20} color={t.colors.text} />
+            </Pressable>
+          </View>
           <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 22, textAlign: 'center' }}>
             {s.goal}
           </Text>

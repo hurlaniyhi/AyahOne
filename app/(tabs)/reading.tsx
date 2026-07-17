@@ -136,9 +136,10 @@ export default function ReadingScreen() {
           </Card>
         </Pressable>
 
-        {/* Favourites + Bookmarks — restful editorial tiles */}
+        {/* Favourites + Bookmarks — restful editorial tiles. Tapping opens the
+            Saved list scoped to the matching tab. */}
         <View style={{ flexDirection: 'row', gap: t.spacing(3) }}>
-          <View style={{ flex: 1 }}>
+          <Pressable style={{ flex: 1 }} onPress={() => router.push('/saved?tab=favorites')}>
             <Card watermark style={{ gap: t.spacing(2) }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
                 <Ionicons name="heart-outline" size={18} color={t.colors.danger} />
@@ -148,8 +149,8 @@ export default function ReadingScreen() {
               </View>
               <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 32 }}>{favorites.length}</Text>
             </Card>
-          </View>
-          <View style={{ flex: 1 }}>
+          </Pressable>
+          <Pressable style={{ flex: 1 }} onPress={() => router.push('/saved?tab=bookmarks')}>
             <Card watermark style={{ gap: t.spacing(2) }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
                 <Ionicons name="bookmark-outline" size={18} color={t.accent.primary} />
@@ -159,7 +160,7 @@ export default function ReadingScreen() {
               </View>
               <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 32 }}>{bookmarks.length}</Text>
             </Card>
-          </View>
+          </Pressable>
         </View>
       </View>
 
