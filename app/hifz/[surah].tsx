@@ -13,8 +13,10 @@ import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { getKaraokeAyahData } from '@/data/hifzKaraoke';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor, stripBismillahPrefix, isQuranWordToken } from '@/lib/quranText';
 import { isDue, shouldRequeueToday, type HifzGrade } from '@/lib/hifz';
+import { hasApiKey } from '@/lib/recitationAi';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { HifzVerificationGate } from '@/components/hifz/HifzVerificationGate';
 import { HifzAudioPlayer } from '@/components/hifz/HifzAudioPlayer';
 import { HifzKaraokePlayer } from '@/components/hifz/HifzKaraokePlayer';
 import { HifzWordTile } from '@/components/hifz/HifzWordTile';
@@ -59,6 +61,8 @@ export default function HifzPracticeScreen() {
   const settings = useAppStore(st => st.settings);
   const recordHifzReview = useAppStore(st => st.recordHifzReview);
   const setHifzNote = useAppStore(st => st.setHifzNote);
+  const hifzVerifyRecitation = useAppStore(st => st.hifzVerifyRecitation);
+  const hifzPassMark = useAppStore(st => st.hifzPassMark);
   const surahStat = useHifzSurahProgress(surahNumber, surahMeta.numberOfAyahs);
   const [noteSheetVisible, setNoteSheetVisible] = useState(false);
 
@@ -91,6 +95,7 @@ export default function HifzPracticeScreen() {
   const [hideLevel, setHideLevel] = useState(HIDE_FRACTIONS.length - 1);
   const [milestoneVisible, setMilestoneVisible] = useState(false);
   const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null);
+  const [verifyDone, setVerifyDone] = useState(false);
 
   useEffect(() => {
     if (!ayahs) return;
@@ -116,6 +121,7 @@ export default function HifzPracticeScreen() {
     setSessionIndex(0);
     setRevealed(new Set());
     setShowAll(false);
+    setVerifyDone(false);
   }, [ayahs, dueOnly, surahNumber, rangeStart, rangeEnd]);
 
   const currentAyahNumber = sessionQueue[sessionIndex];
@@ -130,6 +136,23 @@ export default function HifzPracticeScreen() {
     return showBismillah ? stripBismillahPrefix(split) : split;
   }, [current, showBismillah]);
   const finished = ayahs != null && sessionIndex >= sessionQueue.length;
+
+  // Recitation verification only applies to a ranged "Today's Goal" session
+  // (the daily memorization plan), never due-review or whole-surah browsing.
+  // Offline / no API key can't verify, so the gate is skipped and the session
+  // completes normally.
+  const isRangedGoalSession = rangeStart != null && rangeEnd != null && !dueOnly;
+  const verifyAyahNumbers = useMemo(() => {
+    if (rangeStart == null || rangeEnd == null) return [];
+    const out: number[] = [];
+    for (let a = rangeStart; a <= rangeEnd; a++) out.push(a);
+    return out;
+  }, [rangeStart, rangeEnd]);
+  // If every ayah in this range was already verified in a prior visit, there's
+  // nothing left to check — skip straight to the completion card.
+  const allVerified = useAppStore(st =>
+    verifyAyahNumbers.length > 0 && verifyAyahNumbers.every(n => st.hifzVerified[`${surahNumber}:${n}`]));
+  const needsVerification = isRangedGoalSession && hifzVerifyRecitation && hasApiKey() && !allVerified;
 
   const currentKey = current ? `${surahNumber}:${current.numberInSurah}` : null;
   const existingProgress = useAppStore(st => (currentKey ? st.hifzProgress[currentKey] : undefined));
@@ -420,7 +443,19 @@ export default function HifzPracticeScreen() {
           </ScrollView>
         )}
 
-        {finished && (
+        {finished && needsVerification && !verifyDone && (
+          <ScrollView contentContainerStyle={{ paddingBottom: t.spacing(10), flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+            <HifzVerificationGate
+              surah={surahNumber}
+              ayahNumbers={verifyAyahNumbers}
+              passMark={hifzPassMark}
+              onComplete={() => setVerifyDone(true)}
+              onTurnOff={() => setVerifyDone(true)}
+            />
+          </ScrollView>
+        )}
+
+        {finished && (!needsVerification || verifyDone) && (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing(3), paddingHorizontal: t.spacing(6) }}>
             <Ionicons name="sparkles-outline" size={48} color={t.colors.brass} />
             <Text style={{ color: t.colors.text, fontSize: 18, fontWeight: '800', textAlign: 'center' }}>

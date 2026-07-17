@@ -167,6 +167,17 @@ export interface AppState {
   hifzVersesPerDay: number;
   // Only meaningful when hifzGoalType === 'surahs'.
   hifzGoalSurahs: number[];
+  // When true, finishing a day's ranged goal session forces a recitation
+  // check: the user records each memorized ayah and must score >= hifzPassMark
+  // before the session completes.
+  hifzVerifyRecitation: boolean;
+  // Minimum accuracy (0-100) required to pass verification. Clamped to >= 60.
+  hifzPassMark: number;
+  // Ayahs whose recitation has passed verification, keyed "surah:ayah".
+  // Persisted so a half-finished verification survives leaving the screen:
+  // the gate resumes at the first unverified ayah and Today's Goal stays
+  // anchored to a memorized-but-unverified range instead of advancing.
+  hifzVerified: Record<string, true>;
   // Free-text per-ayah notes ("similar to ayah 23", a pronunciation
   // reminder, ...), keyed "surah:ayah". Independent of hifzProgress — a
   // note can exist for an ayah regardless of its review/mastery state, and
@@ -200,7 +211,9 @@ export interface AppState {
   addRecitationAttempt: (attempt: RecitationAttempt) => void;
   recordHifzReview: (surah: number, ayah: number, grade: HifzGrade) => void;
   resetHifzAyah: (surah: number, ayah: number) => void;
-  setHifzGoal: (goal: { type: HifzGoalType; versesPerDay: number; surahs?: number[] }) => void;
+  setHifzGoal: (goal: { type: HifzGoalType; versesPerDay: number; surahs?: number[]; verify: boolean; passMark: number }) => void;
+  setHifzVerification: (verify: boolean) => void;
+  markHifzVerified: (surah: number, ayah: number) => void;
   setHifzNote: (surah: number, ayah: number, text: string) => void;
   setTefseer: (key: string, result: TefseerResult) => void;
 }
@@ -257,6 +270,9 @@ const DEFAULT_STATE = {
   hifzGoalType: null as HifzGoalType | null,
   hifzVersesPerDay: 2,
   hifzGoalSurahs: [] as number[],
+  hifzVerifyRecitation: false,
+  hifzPassMark: 60,
+  hifzVerified: {} as Record<string, true>,
   hifzNotes: {} as Record<string, string>,
   tefseerCache: {} as Record<string, TefseerResult>,
 };
@@ -293,6 +309,9 @@ async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
       hifzGoalType: state.hifzGoalType,
       hifzVersesPerDay: state.hifzVersesPerDay,
       hifzGoalSurahs: state.hifzGoalSurahs,
+      hifzVerifyRecitation: state.hifzVerifyRecitation,
+      hifzPassMark: state.hifzPassMark,
+      hifzVerified: state.hifzVerified,
       hifzNotes: state.hifzNotes,
       tefseerCache: state.tefseerCache,
     });
@@ -308,7 +327,7 @@ type Actions = Pick<AppState,
   'setPrecache' |
   'setLastSearchQuery' | 'dismissGoalCelebration' | 'dismissKahfCelebration' |
   'appendAskMessages' | 'updateAskMessage' | 'clearAskHistory' | 'setAskSending' | 'setAskLastSendAt' |
-  'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah' | 'setHifzGoal' | 'setHifzNote' |
+  'addRecitationAttempt' | 'recordHifzReview' | 'resetHifzAyah' | 'setHifzGoal' | 'setHifzVerification' | 'markHifzVerified' | 'setHifzNote' |
   'setTefseer'>;
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -482,10 +501,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   resetHifzAyah: (surah, ayah) => {
     const key = `${surah}:${ayah}`;
     set(s => {
-      if (!(key in s.hifzProgress)) return s;
+      if (!(key in s.hifzProgress) && !(key in s.hifzVerified)) return s;
       const next = { ...s.hifzProgress };
       delete next[key];
-      return { hifzProgress: next };
+      const nextVerified = { ...s.hifzVerified };
+      delete nextVerified[key];
+      return { hifzProgress: next, hifzVerified: nextVerified };
     });
     void persist(get());
   },
@@ -494,7 +515,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       hifzGoalType: goal.type,
       hifzVersesPerDay: Math.max(1, Math.floor(goal.versesPerDay)),
       hifzGoalSurahs: goal.type === 'surahs' ? (goal.surahs ?? []) : [],
+      hifzVerifyRecitation: goal.verify,
+      hifzPassMark: Math.max(60, Math.min(100, Math.round(goal.passMark))),
     });
+    void persist(get());
+  },
+  setHifzVerification: (verify) => {
+    set({ hifzVerifyRecitation: verify });
+    void persist(get());
+  },
+  markHifzVerified: (surah, ayah) => {
+    const key = `${surah}:${ayah}`;
+    set(s => (s.hifzVerified[key] ? s : { hifzVerified: { ...s.hifzVerified, [key]: true as const } }));
     void persist(get());
   },
   setHifzNote: (surah, ayah, text) => {
@@ -610,6 +642,9 @@ export async function hydrateAppStore(): Promise<void> {
         hifzVersesPerDay: typeof data.hifzVersesPerDay === 'number' && data.hifzVersesPerDay > 0
           ? data.hifzVersesPerDay : DEFAULT_STATE.hifzVersesPerDay,
         hifzGoalSurahs: Array.isArray(data.hifzGoalSurahs) ? data.hifzGoalSurahs.filter((n: unknown) => typeof n === 'number') : [],
+        hifzVerifyRecitation: data.hifzVerifyRecitation === true,
+        hifzPassMark: typeof data.hifzPassMark === 'number' ? Math.max(60, Math.min(100, data.hifzPassMark)) : 60,
+        hifzVerified: data.hifzVerified && typeof data.hifzVerified === 'object' && !Array.isArray(data.hifzVerified) ? data.hifzVerified : {},
         hifzNotes: data.hifzNotes && typeof data.hifzNotes === 'object' && !Array.isArray(data.hifzNotes) ? data.hifzNotes : {},
         tefseerCache: sanitizeTefseerCache(data.tefseerCache),
       });

@@ -11,6 +11,7 @@ import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 
 const VERSES_PER_DAY_OPTIONS = [1, 2, 3, 5];
+const PASS_MARK_OPTIONS = [60, 70, 80, 90];
 
 export default function HifzSetupScreen() {
   const t = useTheme();
@@ -19,6 +20,8 @@ export default function HifzSetupScreen() {
   const existingGoal = useAppStore(st => st.hifzGoalType);
   const existingVerses = useAppStore(st => st.hifzVersesPerDay);
   const existingSurahs = useAppStore(st => st.hifzGoalSurahs);
+  const existingVerify = useAppStore(st => st.hifzVerifyRecitation);
+  const existingPassMark = useAppStore(st => st.hifzPassMark);
   const setHifzGoal = useAppStore(st => st.setHifzGoal);
 
   const [goalType, setGoalType] = useState<HifzGoalType>(existingGoal ?? 'whole');
@@ -26,6 +29,8 @@ export default function HifzSetupScreen() {
   const [versesPerDay, setVersesPerDay] = useState<number>(existingVerses);
   const [customVerses, setCustomVerses] = useState(String(existingVerses));
   const [isCustom, setIsCustom] = useState(!VERSES_PER_DAY_OPTIONS.includes(existingVerses));
+  const [verify, setVerify] = useState(existingVerify);
+  const [passMark, setPassMark] = useState(existingPassMark);
 
   const goalOptions: { id: HifzGoalType; icon: keyof typeof Ionicons.glyphMap; label: string; description: string }[] = [
     { id: 'whole', icon: 'globe-outline', label: s.hifzGoalWhole, description: s.hifzGoalWholeDesc },
@@ -41,7 +46,7 @@ export default function HifzSetupScreen() {
 
   const handleSave = () => {
     const finalVerses = isCustom ? Math.max(1, parseInt(customVerses, 10) || 1) : versesPerDay;
-    setHifzGoal({ type: goalType, versesPerDay: finalVerses, surahs: goalType === 'surahs' ? selectedSurahs : undefined });
+    setHifzGoal({ type: goalType, versesPerDay: finalVerses, surahs: goalType === 'surahs' ? selectedSurahs : undefined, verify, passMark });
     router.replace('/hifz');
   };
 
@@ -190,6 +195,75 @@ export default function HifzSetupScreen() {
                   color: t.colors.text, fontSize: 16, fontWeight: '700',
                 }}
               />
+            )}
+          </View>
+
+          <View style={{ gap: t.spacing(2) }}>
+            <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700', letterSpacing: 0.6 }}>
+              {s.hifzVerifyLabel.toUpperCase()}
+            </Text>
+            <Pressable
+              onPress={() => setVerify(v => !v)}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: t.spacing(3),
+                padding: t.spacing(4), borderRadius: t.radius.lg,
+                backgroundColor: t.colors.surface,
+                borderWidth: verify ? 1.5 : 0.75,
+                borderColor: verify ? t.accent.primary : t.colors.hairline,
+              }}
+            >
+              <View style={{
+                width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: verify ? t.accent.primarySoft : t.colors.surfaceMuted,
+              }}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={verify ? t.accent.primary : t.colors.textMuted} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: verify ? t.accent.primary : t.colors.text, fontWeight: '700', fontSize: 15 }}>
+                  {s.hifzVerifyLabel}
+                </Text>
+                <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2, lineHeight: 17 }}>
+                  {s.hifzVerifyDescription}
+                </Text>
+              </View>
+              <View style={{
+                width: 46, height: 28, borderRadius: 14, padding: 3, justifyContent: 'center',
+                backgroundColor: verify ? t.accent.primary : t.colors.surfaceMuted,
+              }}>
+                <View style={{
+                  width: 22, height: 22, borderRadius: 11, backgroundColor: t.accent.onPrimary,
+                  alignSelf: verify ? 'flex-end' : 'flex-start',
+                }} />
+              </View>
+            </Pressable>
+
+            {verify && (
+              <View style={{ gap: t.spacing(2), marginTop: t.spacing(2) }}>
+                <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700', letterSpacing: 0.6 }}>
+                  {s.hifzPassMarkLabel.toUpperCase()}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: t.spacing(2) }}>
+                  {PASS_MARK_OPTIONS.map(n => {
+                    const active = passMark === n;
+                    return (
+                      <Pressable
+                        key={n}
+                        onPress={() => setPassMark(n)}
+                        style={{
+                          flex: 1, paddingVertical: t.spacing(3), borderRadius: t.radius.pill,
+                          alignItems: 'center',
+                          backgroundColor: active ? t.accent.primary : t.colors.surfaceMuted,
+                        }}
+                      >
+                        <Text style={{ color: active ? t.accent.onPrimary : t.colors.text, fontWeight: '700', fontSize: 14 }}>{n}%</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={{ color: t.colors.textMuted, fontSize: 12, lineHeight: 17 }}>
+                  {s.hifzPassMarkHint}
+                </Text>
+              </View>
             )}
           </View>
         </ScrollView>
