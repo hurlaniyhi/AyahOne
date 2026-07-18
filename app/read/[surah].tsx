@@ -9,6 +9,8 @@ import { useAppStore } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
+import { pageForAyah } from '@/data/mushafPages';
+import PageModeReader from '@/components/reader/PageModeReader';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
@@ -77,7 +79,17 @@ export default function VerseReader() {
   const bookmarks = useAppStore(st => st.bookmarks);
   const tefseerCache = useAppStore(st => st.tefseerCache);
   const setTefseer = useAppStore(st => st.setTefseer);
+  const setSetting = useAppStore(st => st.setSetting);
   const today = useTodayStats();
+
+  // Reader layout mode. Seeded from the persisted default; the in-reader toggle
+  // updates the same setting so a switch here also becomes the new default.
+  const mode = settings.readingMode;
+  // Page shown when page mode is entered. Derived from the current ayah so the
+  // two modes stay position-synced; null until resolved on first switch.
+  const [pageForMode, setPageForMode] = useState<number | null>(null);
+  // The ayah highlighted on entry to page mode (the verse the user was viewing).
+  const [pageHighlight, setPageHighlight] = useState<{ surah: number; ayah: number } | null>(null);
 
   const [ayahs, setAyahs] = useState<Ayah[] | null>(null);
   const [idx, setIdx] = useState(startAyah - 1);
@@ -138,6 +150,19 @@ export default function VerseReader() {
   }, []);
 
   useEffect(() => { verseEnterRef.current = Date.now(); }, [idx]);
+
+  // When the reader opens already in page mode (persisted default) the page
+  // hasn't been resolved by the in-reader toggle yet — derive it from the entry
+  // ayah so the mushaf opens on the right spread and highlights that verse.
+  useEffect(() => {
+    if (mode !== 'page' || pageForMode != null) return;
+    let alive = true;
+    const ayahNum = startAyah;
+    pageForAyah(surahNumber, ayahNum, settings.translationId, settings.arabicScript)
+      .then(p => { if (alive) { setPageForMode(p ?? 1); setPageHighlight({ surah: surahNumber, ayah: ayahNum }); } })
+      .catch(() => { if (alive) setPageForMode(1); });
+    return () => { alive = false; };
+  }, [mode, pageForMode, surahNumber, startAyah, settings.translationId, settings.arabicScript]);
 
   // Detect cross-surah transitions and flash a brief floating label so the
   // continuous-reading flow feels intentional. Skips the initial mount.
@@ -316,11 +341,69 @@ export default function VerseReader() {
     if (!tefseerCache[`${target.surah}:${target.ayah}:${settings.language}`]) void runTefseer(target);
   }, [current, surahNumber, surahMeta.englishName, settings.language, tefseerCache, runTefseer]);
 
+  // Page-mode tafsir entry point: an ayah on the page (possibly from a
+  // different surah than the route's) is tapped. Fetches its own content so the
+  // Arabic/translation passed to the AI are correct even across surah bounds.
+  const openTefseerFor = useCallback(async (targetSurah: number, targetAyah: number) => {
+    void Haptics.selectionAsync();
+    const content = await getSurahContent(targetSurah, settings.translationId, settings.arabicScript);
+    const a = content.ayahs.find(x => x.numberInSurah === targetAyah);
+    if (!a) return;
+    const target = {
+      surah: targetSurah,
+      ayah: targetAyah,
+      surahName: getSurah(targetSurah)?.englishName ?? '',
+      arabic: stripTajweed(a.arabic),
+      translation: a.translation,
+    };
+    setTefseerTarget(target);
+    if (!tefseerCache[`${target.surah}:${target.ayah}:${settings.language}`]) void runTefseer(target);
+  }, [settings.translationId, settings.arabicScript, settings.language, tefseerCache, runTefseer]);
+
   const retryTefseer = useCallback(() => {
     if (tefseerTarget) void runTefseer(tefseerTarget);
   }, [tefseerTarget, runTefseer]);
 
   const closeTefseer = useCallback(() => setTefseerTarget(null), []);
+
+  // Tracks the verse page mode last surfaced (tap or top-of-page), so switching
+  // back to ayah mode can resume exactly there.
+  const pagePositionRef = useRef<{ surah: number; ayah: number }>({ surah: surahNumber, ayah: startAyah });
+
+  // Switch to the mushaf page containing the ayah currently in view, keeping the
+  // user's place. Resolves the page from per-ayah data before flipping so the
+  // page reader opens directly on the right spread.
+  const switchToPageMode = useCallback(async () => {
+    if (!current) return;
+    void Haptics.selectionAsync();
+    const p = await pageForAyah(surahNumber, current.numberInSurah, settings.translationId, settings.arabicScript);
+    setPageHighlight({ surah: surahNumber, ayah: current.numberInSurah });
+    setPageForMode(p ?? 1);
+    setSetting('readingMode', 'page');
+  }, [current, surahNumber, settings.translationId, settings.arabicScript, setSetting]);
+
+  // Switch back to verse-by-verse, resuming on the verse page mode last
+  // surfaced. If page mode drifted into another surah, route there; otherwise
+  // just realign the in-surah index before flipping the mode.
+  const switchToAyahMode = useCallback(() => {
+    void Haptics.selectionAsync();
+    const pos = pagePositionRef.current;
+    setSetting('readingMode', 'ayah');
+    if (pos.surah === surahNumber) {
+      setIdx(Math.max(0, pos.ayah - 1));
+    } else {
+      const suffix = ephemeral ? '&nosave=1' : '';
+      router.replace(`/read/${pos.surah}?ayah=${pos.ayah}${suffix}`);
+    }
+  }, [setSetting, surahNumber, ephemeral, router]);
+
+  // Routing to a page-mode surah drift is deferred to switchToAyahMode to avoid
+  // re-running the reader's load effects on every page scroll.
+  const onPagePosition = useCallback((posSurah: number, posAyah: number) => {
+    pagePositionRef.current = { surah: posSurah, ayah: posAyah };
+    recordSurahProgress(posSurah, posAyah);
+    if (!ephemeral) setLastRead({ surah: posSurah, ayah: posAyah });
+  }, [ephemeral, setLastRead, recordSurahProgress]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
@@ -352,11 +435,38 @@ export default function VerseReader() {
               {String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(Math.floor(elapsed % 60)).padStart(2, '0')}
             </Text>
           </View>
-          <IconButton onPress={() => router.push('/settings/account')}>
-            <Ionicons name="settings-outline" size={20} color={t.colors.text} />
-          </IconButton>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+            <IconButton onPress={mode === 'page' ? switchToAyahMode : switchToPageMode}>
+              <Ionicons
+                name={mode === 'page' ? 'list-outline' : 'reader-outline'}
+                size={20}
+                color={t.colors.text}
+              />
+            </IconButton>
+            <IconButton onPress={() => router.push('/settings/account')}>
+              <Ionicons name="settings-outline" size={20} color={t.colors.text} />
+            </IconButton>
+          </View>
         </View>
 
+        {mode === 'page' && (
+          pageForMode == null ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <ActivityIndicator size="large" color={t.accent.primary} />
+            </View>
+          ) : (
+            <PageModeReader
+              key={pageForMode}
+              initialPage={pageForMode}
+              anchorSurah={surahNumber}
+              highlightAyah={pageHighlight}
+              onPositionChange={onPagePosition}
+              onOpenTefseer={openTefseerFor}
+            />
+          )
+        )}
+
+        {mode === 'ayah' && <>
         {/* Surah title — editorial header */}
         <View style={{ alignItems: 'center', marginTop: t.spacing(1) }}>
           <Text style={{ color: t.colors.brass, fontSize: 11, letterSpacing: 2, fontWeight: '700' }}>
@@ -599,9 +709,12 @@ export default function VerseReader() {
             </View>
           )}
         </ScrollView>
+        </>}
       </View>
 
-      {/* Floating glass action dock */}
+      {/* Floating glass action dock — verse-by-verse navigation only. Page mode
+          has its own paged scrolling and per-ayah action bar. */}
+      {mode === 'ayah' && (
       <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
         {transitionLabel != null && (
           <Animated.View
@@ -677,6 +790,7 @@ export default function VerseReader() {
           </GlassDock>
         </View>
       </View>
+      )}
 
       <TefseerSheet
         visible={tefseerTarget != null}

@@ -21,6 +21,8 @@ const TEFSEER_CACHE_CAP = 120;
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type AppLanguage = 'en' | 'ar' | 'fr';
 export type ArabicScript = 'uthmani' | 'indopak' | 'tajweed';
+// Reader layout mode: verse-by-verse cards vs. a continuous mushaf page.
+export type ReadingMode = 'ayah' | 'page';
 // 'page' (one Madinah-mushaf page a day) is intentionally not offered yet —
 // it needs a page↔ayah index across the whole Qur'an, not just open surahs,
 // which is a separate, not-yet-built data source (see HIFZ_ROADMAP.md).
@@ -47,6 +49,10 @@ export interface Settings {
   showTransliteration: boolean;
   hideHasanat: boolean;
   showReadingLevel: boolean;
+  // Reader layout: 'ayah' shows one verse card at a time (default); 'page'
+  // renders a continuous Madinah-mushaf page. The two modes stay position-
+  // synced so switching keeps the user on the same ayah.
+  readingMode: ReadingMode;
   // Master switch for local reminders (daily-goal nudge + Friday Al-Kahf
   // nudge). When false, syncReminders() cancels any pending schedules and
   // skips re-creating them. Defaults to true so reminders work out of the
@@ -238,6 +244,7 @@ const DEFAULT_SETTINGS: Settings = {
   showTransliteration: false,
   hideHasanat: false,
   showReadingLevel: true,
+  readingMode: 'ayah',
   notificationsEnabled: true,
   goalReminderTime: '',
   kahfReminderTime: '',
@@ -615,6 +622,11 @@ export async function hydrateAppStore(): Promise<void> {
           ARABIC_FONT_MIN,
           Math.min(ARABIC_FONT_MAX, rawSize),
         );
+      }
+      // Guard the reader mode against corrupt/legacy payloads so the reader
+      // never receives an out-of-range value.
+      if (incomingSettings.readingMode !== 'ayah' && incomingSettings.readingMode !== 'page') {
+        incomingSettings.readingMode = 'ayah';
       }
       useAppStore.setState({
         settings: { ...DEFAULT_SETTINGS, ...incomingSettings },

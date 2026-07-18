@@ -16,11 +16,15 @@ interface Props {
   surah: number;
   ayah: number;
   reciterId: string;
+  // Fired the moment a fresh play is requested here, so a parent running its
+  // own playback (e.g. page-mode continuous recitation) can stop first — the
+  // two must never sound at once.
+  onPlaybackStart?: () => void;
 }
 
 // Compact "Listen" pill that expands into an inline mini-player once tapped.
 // Mounted inside the ayah card in the reader (app/read/[surah].tsx).
-export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
+export function VerseAudioListen({ surah, ayah, reciterId, onPlaybackStart }: Props) {
   const t = useTheme();
   const s = useStrings();
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -79,6 +83,7 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
 
   const load = async () => {
     setStatus('loading');
+    onPlaybackStart?.();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const url = await getAyahAudioUrl(surah, ayah, reciterId);
@@ -159,7 +164,7 @@ export function VerseAudioListen({ surah, ayah, reciterId }: Props) {
     }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
         <Pressable
-          onPress={toggle}
+          onPress={() => { if (!playerStatus.playing) onPlaybackStart?.(); void toggle(); }}
           disabled={buffering}
           style={({ pressed }) => ({
             width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
