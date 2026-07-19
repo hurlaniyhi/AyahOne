@@ -7,6 +7,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import {
   useAppStore,
   type ArabicScript,
+  type ReadingMode,
 } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
@@ -62,6 +63,11 @@ export default function QuranDisplayScreen() {
     { id: 'uthmani', label: s.scriptUthmani },
     { id: 'indopak', label: s.scriptIndopak },
     { id: 'tajweed', label: s.scriptTajweed },
+  ];
+
+  const readingModeOptions: { id: ReadingMode; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { id: 'ayah', label: s.readingModeAyah, icon: 'list-outline' },
+    { id: 'page', label: s.readingModePage, icon: 'reader-outline' },
   ];
 
   // Reciter audition: a single shared player for all cards — tapping a
@@ -181,6 +187,39 @@ export default function QuranDisplayScreen() {
             value={settings.arabicFontSize}
             onChange={v => setSetting('arabicFontSize', v)}
           />
+        </View>
+
+        {/* Reading mode — default reader layout. Also toggleable in-reader; the
+            two write the same setting so a change here is the new default. */}
+        <SettingsSection title={s.readingModeTitle} />
+        <Text style={{ color: t.colors.textMuted, fontSize: 13, marginTop: -t.spacing(2), marginBottom: t.spacing(1) }}>
+          {s.readingModeDescription}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: t.spacing(2) }}>
+          {readingModeOptions.map(opt => {
+            const active = settings.readingMode === opt.id;
+            return (
+              <Pressable
+                key={opt.id}
+                onPress={() => setSetting('readingMode', opt.id)}
+                style={{
+                  flex: 1, padding: t.spacing(4), borderRadius: t.radius.lg,
+                  backgroundColor: t.colors.surface,
+                  borderWidth: active ? 1.5 : 0.75,
+                  borderColor: active ? t.accent.primary : t.colors.hairline,
+                  alignItems: 'center', gap: t.spacing(2),
+                }}
+              >
+                <Ionicons name={opt.icon} size={26} color={active ? t.accent.primary : t.colors.textMuted} />
+                <Text style={{
+                  color: active ? t.accent.primary : t.colors.text,
+                  fontWeight: '700', fontSize: 14, textAlign: 'center',
+                }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* Script — vertical cards: label on top, Arabic preview below. The
