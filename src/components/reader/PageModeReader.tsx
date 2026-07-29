@@ -172,6 +172,13 @@ function renderWordSynced(a: PageAyah, font: string, size: number, activeWord: n
   ));
 }
 
+// Number of recited word-tokens in an ayah, tokenised exactly like the
+// word-sync render (drop pure waqf/pause marks) so word-weight position
+// estimates line up with what's actually spoken.
+function ayahWordCount(a: PageAyah): number {
+  return stripTajweed(ayahArabic(a)).split(/\s+/).filter(Boolean).filter(isQuranWordToken).length || 1;
+}
+
 // Ornamental surah header shown when a surah begins on the page. A framed
 // brass plate keeps the mushaf feel and clearly separates surahs mid-page.
 function SurahPlate({ surah }: { surah: number }) {
@@ -201,7 +208,7 @@ function SurahPlate({ surah }: { surah: number }) {
 // Each ayah is a tappable inline segment; the selected ayah is highlighted and
 // surfaces an action bar (handled by the parent via onSelect).
 function PageView({
-  content, arabicSize, selected, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onPlayingLayout, cellRef, isLast,
+  content, arabicSize, selected, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, cellRef, isLast,
 }: {
   content: PageContent;
   arabicSize: number;
@@ -216,10 +223,6 @@ function PageView({
   // the mount landing can scroll to the verse itself, not just the page top.
   entryAyah?: { surah: number; ayah: number } | null;
   onEntryOffset?: (offsetInCell: number) => void;
-  // Reports the reciting ayah's offset within this page cell + its rendered
-  // height (both measured against the cell node) so the parent can tell whether
-  // the verse is fully on screen and scroll it into view during playback.
-  onPlayingLayout?: (key: string, offsetInCell: number, height: number) => void;
   // The page cell's view node, used as the reference for measuring the entry
   // ayah's offset within the page (measureLayout is reliable for inline text,
   // unlike measureInWindow which returns bogus coords for nested <Text>).
@@ -236,16 +239,72 @@ function PageView({
   const playHl = playingBg(t);
   const wordHl = wordHighlightBg(t);
 
-  // Measure the entry ayah's offset WITHIN its page cell so the parent's mount
-  // landing can scroll to the verse itself. measureLayout against the cell node
-  // is reliable for inline nested <Text> (measureInWindow is not). Only wired
-  // for the ayah the user switched in on.
-  const entryRef = useRef<Text>(null);
+  // The entry ayah reports its offset within the page cell via a reliable
+  // block-measure (measureLayout on a View, not the inline <Text> which silently
+  // fails on Android): its surah-group's justified <Text> block is measured
+  // against the cell, and the verse's slice is estimated by cumulative
+  // word-weight. Justified Arabic fills lines evenly, so word-weight tracks
+  // vertical position closely enough. The shared machinery (groups, groupWeights,
+  // groupNodeRef) is declared just below; measureEntry is defined after it.
+
+  // Group ayahs by surah so a surah that begins mid-page gets its own header.
+  const groups = useMemo(() => {
+    const out: { surah: number; ayahs: PageAyah[] }[] = [];
+    for (const a of content.ayahs) {
+      const last = out[out.length - 1];
+      if (last && last.surah === a.surah) last.ayahs.push(a);
+      else out.push({ surah: a.surah, ayahs: [a] });
+    }
+    return out;
+  }, [content]);
+
+  // Per-group word-weight index: for each surah-group, the cumulative word
+  // count BEFORE each ayah and each ayah's own word count, plus the group
+  // total. Used to slice the group's measured height into per-ayah bands.
+  const groupWeights = useMemo(() => {
+    const map = new Map<number, { total: number; before: Map<number, number>; own: Map<number, number> }>();
+    for (const g of groups) {
+      const before = new Map<number, number>();
+      const own = new Map<number, number>();
+      let acc = 0;
+      for (const a of g.ayahs) {
+        const w = ayahWordCount(a);
+        before.set(a.numberInSurah, acc);
+        own.set(a.numberInSurah, w);
+        acc += w;
+      }
+      map.set(g.surah, { total: acc || 1, before, own });
+    }
+    return map;
+  }, [groups]);
+
+  // Each group's justified <Text> block View node, so we can measureLayout it
+  // against the cell — measureLayout on a View is reliable (it's the inline
+  // <Text> variant that silently fails), giving the block's true top within
+  // the cell regardless of any headers/Bismillah stacked above it.
+  const groupNodeRef = useRef<Map<number, View>>(new Map());
+
+  // Report the entry ayah's offset WITHIN its page cell so the parent's mount
+  // landing can scroll to the verse itself — same reliable block-measure as the
+  // reciting ayah (the inline <Text> measureLayout this replaced silently failed
+  // on Android). Measures the entry ayah's surah-group block against the cell,
+  // then estimates the verse's top by cumulative word-weight.
   const measureEntry = useCallback(() => {
-    const node = cellRef.current;
-    if (!onEntryOffset || !entryRef.current || !node) return;
-    entryRef.current.measureLayout(node, (_x: number, y: number) => onEntryOffset(y), () => {});
-  }, [onEntryOffset, cellRef]);
+    if (!onEntryOffset || !entryAyah) return;
+    const w = groupWeights.get(entryAyah.surah);
+    const node = groupNodeRef.current.get(entryAyah.surah);
+    const cell = cellRef.current;
+    if (!w || !node || !cell) return;
+    node.measureLayout(
+      cell,
+      (_x: number, y: number, _width: number, blockH: number) => {
+        if (blockH < 8 || y < 0) return; // ignore pre-layout measurements
+        const before = w.before.get(entryAyah.ayah) ?? 0;
+        onEntryOffset(y + (before / w.total) * blockH);
+      },
+      () => {},
+    );
+  }, [onEntryOffset, entryAyah, cellRef, groupWeights]);
 
   // Re-measure across a few passes after mount. The offset within the cell is
   // stable (it doesn't change with scroll), but the page content assembles
@@ -259,46 +318,6 @@ function PageView({
     return () => ids.forEach(clearTimeout);
   }, [entryKey, onEntryOffset, measureEntry]);
 
-  // Measure the reciting ayah's offset within this page cell and its rendered
-  // height, so the parent can tell whether it's fully on screen and scroll it
-  // into view. Same measureLayout-against-the-cell technique as the entry ayah
-  // (reliable for inline nested <Text>, unlike measureInWindow).
-  const playingRef = useRef<Text>(null);
-  const measurePlaying = useCallback(() => {
-    const node = cellRef.current;
-    if (!onPlayingLayout || !playingRef.current || !node || !playing) return;
-    const key = `${playing.surah}:${playing.ayah}`;
-    playingRef.current.measureLayout(
-      node,
-      (_x: number, y: number, _w: number, h: number) => onPlayingLayout(key, y, h),
-      () => {},
-    );
-  }, [onPlayingLayout, cellRef, playing]);
-
-  // Re-measure across a few passes whenever the reciting ayah on THIS page
-  // changes. The highlight moving to a new verse doesn't relayout the text (so
-  // its onLayout won't fire), and content assembles/justifies asynchronously,
-  // so these timed passes let the measurement settle.
-  const playingKey = playing && content.ayahs.some(a => a.surah === playing.surah && a.numberInSurah === playing.ayah)
-    ? `${playing.surah}:${playing.ayah}`
-    : null;
-  useEffect(() => {
-    if (!onPlayingLayout || !playingKey) return;
-    const ids = [0, 60, 160, 320, 550].map(ms => setTimeout(measurePlaying, ms));
-    return () => ids.forEach(clearTimeout);
-  }, [playingKey, onPlayingLayout, measurePlaying]);
-
-  // Group ayahs by surah so a surah that begins mid-page gets its own header.
-  const groups = useMemo(() => {
-    const out: { surah: number; ayahs: PageAyah[] }[] = [];
-    for (const a of content.ayahs) {
-      const last = out[out.length - 1];
-      if (last && last.surah === a.surah) last.ayahs.push(a);
-      else out.push({ surah: a.surah, ayahs: [a] });
-    }
-    return out;
-  }, [content]);
-
   return (
     <View style={{ paddingHorizontal: t.spacing(5), paddingTop: t.spacing(3), gap: t.spacing(3) }}>
       {groups.map(group => {
@@ -311,6 +330,15 @@ function PageView({
                 {BISMILLAH}
               </Text>
             )}
+            <View
+              ref={node => {
+                if (node) groupNodeRef.current.set(group.surah, node);
+                else groupNodeRef.current.delete(group.surah);
+              }}
+              onLayout={() => {
+                if (entryAyah?.surah === group.surah) measureEntry();
+              }}
+            >
             <Text
               allowFontScaling={false}
               textBreakStrategy="simple"
@@ -322,7 +350,6 @@ function PageView({
               {group.ayahs.map(a => {
                 const isSel = selected?.surah === a.surah && selected?.ayah === a.numberInSurah;
                 const isPlaying = playing?.surah === a.surah && playing?.ayah === a.numberInSurah;
-                const isEntry = entryAyah?.surah === a.surah && entryAyah?.ayah === a.numberInSurah;
                 // Word-sync only on the reciting ayah and only when we have a
                 // resolved active word; otherwise fall back to the normal
                 // (tajweed-coloured or plain) render.
@@ -330,8 +357,6 @@ function PageView({
                 return (
                   <Text
                     key={a.numberInSurah}
-                    ref={isPlaying ? playingRef : isEntry ? entryRef : undefined}
-                    onLayout={isPlaying ? measurePlaying : isEntry ? measureEntry : undefined}
                     onPress={() => onSelectAyah(a)}
                     suppressHighlighting
                     style={{
@@ -352,6 +377,7 @@ function PageView({
                 );
               })}
             </Text>
+            </View>
           </View>
         );
       })}
@@ -390,7 +416,7 @@ function PageView({
 // the page actually holding the reciting ayah — every other mounted page sees
 // identical props and bails out of re-rendering.
 const LazyPage = React.memo(function LazyPage({
-  page, anchorSurah, arabicSize, selected, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onPlayingLayout, onCellLayout, onLoaded, isLast,
+  page, anchorSurah, arabicSize, selected, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded, isLast,
 }: {
   page: number;
   anchorSurah: number;
@@ -402,12 +428,9 @@ const LazyPage = React.memo(function LazyPage({
   // Forwarded to PageView so the entry ayah reports its offset within this cell.
   entryAyah?: { surah: number; ayah: number } | null;
   onEntryOffset?: (offsetInCell: number) => void;
-  // Forwarded to PageView (with this page's number injected) so the reciting
-  // ayah reports its measured geometry for auto-scroll.
-  onPlayingLayout?: (page: number, key: string, offsetInCell: number, height: number) => void;
   // Reports this cell's content-space top (layout.y within the list content) so
-  // the parent can place the page and resolve the entry/reciting ayah's
-  // absolute offset (cell top + the ayah's measured offset within the cell).
+  // the parent can place the page and resolve the entry ayah's absolute offset
+  // (cell top + the ayah's measured offset within the cell).
   onCellLayout?: (page: number, y: number) => void;
   onLoaded?: (content: PageContent) => void;
   isLast: boolean;
@@ -433,7 +456,7 @@ const LazyPage = React.memo(function LazyPage({
       <ActivityIndicator size="large" color={t.accent.primary} />
     </View>
   ) : (
-    <PageView content={content} arabicSize={arabicSize} selected={selected} playing={playing} activeWord={activeWord} onSelectAyah={onSelectAyah} entryAyah={entryAyah} onEntryOffset={onEntryOffset} onPlayingLayout={onPlayingLayout ? (key, y, h) => onPlayingLayout(page, key, y, h) : undefined} cellRef={cellRef} isLast={isLast} />
+    <PageView content={content} arabicSize={arabicSize} selected={selected} playing={playing} activeWord={activeWord} onSelectAyah={onSelectAyah} entryAyah={entryAyah} onEntryOffset={onEntryOffset} cellRef={cellRef} isLast={isLast} />
   );
   return (
     <View
@@ -496,6 +519,34 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // stays exactly where it was — no jump.
   const contentHeightRef = useRef(0);
   const pendingPrependRef = useRef(false);
+  // True while the user is actively dragging or the list is coasting under
+  // momentum. Playback-driven range appends are deferred until this clears so a
+  // content-size change never lands mid-gesture (which shifts the visible page
+  // and reads as a jump/flicker while the user scrolls during recitation).
+  const isScrollingRef = useRef(false);
+  // A reciting page whose range append was deferred because the user was
+  // scrolling; applied once scrolling settles (see onScrollEndDrag /
+  // onMomentumScrollEnd).
+  const pendingPlayPageRef = useRef<number | null>(null);
+  // Extends the rendered range forward to keep `page` (plus a little lookahead)
+  // mounted so its reciting ayah can render/highlight. Appends at the bottom
+  // only, so it never shifts the visible position on its own.
+  const ensurePageInRange = useCallback((page: number) => {
+    setRange(prev => (page >= prev.start && page <= prev.end
+      ? prev
+      : { ...prev, end: Math.max(prev.end, Math.min(TOTAL_MUSHAF_PAGES, page + FORWARD_BATCH)) }));
+  }, []);
+  // Apply a deferred playback append once scrolling has settled. Held off while
+  // a prepend is in flight so the two range mutations never land in the same
+  // content-size change (which would let the append's bottom-growth inflate the
+  // prepend compensation delta and over-shoot). It flushes on the next settle.
+  const flushPendingPlayPage = useCallback(() => {
+    if (pendingPrependRef.current) return;
+    const page = pendingPlayPageRef.current;
+    if (page == null) return;
+    pendingPlayPageRef.current = null;
+    ensurePageInRange(page);
+  }, [ensurePageInRange]);
 
   // Selected ayah drives the highlight + action bar. Seed from the entry
   // highlight so the user's ayah-mode position stays visible on switch.
@@ -524,9 +575,6 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const onPageLoaded = useCallback((c: PageContent) => {
     const first = c.ayahs[0];
     if (first) firstAyahByPage.current.set(c.page, { surah: first.surah, ayah: first.numberInSurah });
-    // The reciting ayah's page may have just finished assembling — once it has,
-    // its playing <Text> can measure, so re-check auto-scroll.
-    if (c.page === playingPageRef.current) checkAutoScrollRef.current();
   }, []);
 
   // ── Continuous recitation ────────────────────────────────────────────────
@@ -592,21 +640,22 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
         kd ? Promise.resolve(kd.audioUrl) : getAyahAudioUrl(surah, ayah, reciterRef.current),
         pageForAyah(surah, ayah, translationId, script),
       ]);
-      // Track which page holds the reciting ayah (drives the highlight, which
-      // page receives word-sync, and the auto-scroll-into-view below).
+      // Track which page holds the reciting ayah (drives the highlight and
+      // which page receives word-sync).
       setPlayingPage(page ?? null);
       playingPageRef.current = page ?? null;
       // Make sure that page (and a little lookahead) is actually part of the
       // rendered range — pages otherwise only get appended once the user
       // scrolls near the very bottom of ALL currently rendered content
-      // (FlatList's onEndReached), which auto-scroll's small, incremental
-      // nudges may never reach. Without this, playback can cross into a page
-      // that was never mounted/loaded, so its reciting ayah can't measure and
-      // auto-scroll silently has nothing to act on.
+      // (FlatList's onEndReached). Without this, playback can cross into a page
+      // that was never mounted/loaded, so its reciting ayah would never be
+      // rendered to highlight. While the user is scrolling, defer this append:
+      // growing the list mid-gesture triggers a content-size change that can
+      // shift the visible page and read as a jump/flicker. The deferred page is
+      // flushed the moment scrolling settles.
       if (page != null) {
-        setRange(prev => (page >= prev.start && page <= prev.end
-          ? prev
-          : { ...prev, end: Math.max(prev.end, Math.min(TOTAL_MUSHAF_PAGES, page + FORWARD_BATCH)) }));
+        if (isScrollingRef.current) pendingPlayPageRef.current = page;
+        else ensurePageInRange(page);
       }
       setAudioUrl(streamUrl);
     } catch (e) {
@@ -637,9 +686,6 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     setActiveWord(null);
     setPlaybackError(null);
     retryAyahRef.current = null;
-    playingAyahTopInCellRef.current = null;
-    playingAyahHeightRef.current = 0;
-    playingAyahKeyRef.current = null;
   }, [audioPlayer]);
 
   const togglePlayback = useCallback(() => {
@@ -749,8 +795,6 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const pageContentTopRef = useRef<Map<number, number>>(new Map());
   const onCellLayout = useCallback((page: number, y: number) => {
     pageContentTopRef.current.set(page, y);
-    // The playing ayah's page top may have just arrived — recheck.
-    if (page === playingPageRef.current) checkAutoScrollRef.current();
   }, []);
   // Offset of the entry ayah WITHIN its page cell (from measureLayout against the
   // cell), reported by PageView once laid out. Added to the cell's content top it
@@ -759,108 +803,19 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const onEntryOffset = useCallback((offsetInCell: number) => {
     entryOffsetInCellRef.current = offsetInCell;
   }, []);
-
-  // ── Auto-scroll to the reciting ayah ────────────────────────────────────
-  // The reciting ayah reports its own on-screen geometry (offset within its
-  // page cell + rendered height) via measureLayout against the cell node — the
-  // same reliable inline-<Text> measurement used for the entry-ayah landing
-  // above. Combined with the cell's content-space top (pageContentTopRef) this
-  // yields the verse's absolute [top, bottom) in the scroll content, compared
-  // against the visible viewport so we scroll by the minimum amount needed
-  // whenever any part of the verse falls off screen.
-  const playingAyahTopInCellRef = useRef<number | null>(null);
-  const playingAyahHeightRef = useRef(0);
-  // The verse the measured geometry above belongs to, so a stale measurement
-  // from the previous verse can never drive a scroll for the current one.
-  const playingAyahKeyRef = useRef<string | null>(null);
-  // Receives the reciting ayah's measured geometry from its page. Stable so the
-  // memoised pages never re-render on its identity; validates the report
-  // against the live playing page/ayah, then re-runs the visibility check.
-  const onPlayingLayout = useCallback((page: number, key: string, offsetInCell: number, height: number) => {
-    if (page !== playingPageRef.current) return;
-    const cur = playingRef.current;
-    if (!cur || key !== `${cur.surah}:${cur.ayah}`) return;
-    playingAyahTopInCellRef.current = offsetInCell;
-    playingAyahHeightRef.current = height;
-    playingAyahKeyRef.current = key;
-    checkAutoScrollRef.current();
-  }, []);
-  // Height of the visible list viewport, from the FlatList's own onLayout.
-  const viewportHeightRef = useRef(0);
-  // Suppresses the auto-scroll nudge while the user's finger is actually on
-  // the list, so it never fights a manual scroll mid-drag.
-  const manualScrollRef = useRef(false);
-
-  // Scrolls the list by the minimum amount needed to bring the reciting ayah
-  // fully onto the screen — re-evaluated every time the reciting ayah changes
-  // (i.e. at the moment each verse's highlight moves onto it), plus whenever
-  // fresh geometry for it arrives (see onPlayingLayout/onCellLayout/onPageLoaded).
-  const checkAutoScroll = useCallback(() => {
-    if (!playing || manualScrollRef.current) return;
-    const page = playingPageRef.current;
-    if (page == null) return;
-    const cellTop = pageContentTopRef.current.get(page);
-    const viewportH = viewportHeightRef.current;
-    if (cellTop == null || !viewportH) return;
-    // Only trust geometry measured for the verse that's actually reciting now.
-    const key = `${playing.surah}:${playing.ayah}`;
-    if (playingAyahKeyRef.current !== key) return;
-    const topInCell = playingAyahTopInCellRef.current;
-    const height = playingAyahHeightRef.current;
-    if (topInCell == null || height <= 0) return;
-
-    // Absolute [top, bottom) of the reciting ayah within the scroll content.
-    const ayahTop = cellTop + topInCell;
-    const ayahBottom = ayahTop + height;
-    // The sticky header overlays the top of the list, so the genuinely visible
-    // band starts HEADER_OCCLUSION below the raw scroll offset.
-    const visibleTop = scrollOffsetRef.current + HEADER_OCCLUSION;
-    const visibleBottom = scrollOffsetRef.current + viewportH;
-    // A little breathing room so the verse never lands flush against an edge.
-    const margin = viewportH * 0.06;
-
-    let target: number | null = null;
-    if (ayahTop < visibleTop) {
-      // Starts above the visible band → reveal its top just under the header.
-      target = ayahTop - HEADER_OCCLUSION - margin;
-    } else if (ayahBottom > visibleBottom) {
-      // Extends below the visible band → bring it into view.
-      target = height <= viewportH - HEADER_OCCLUSION - margin
-        // Fits on one screen: land its bottom just above the edge.
-        ? ayahBottom - viewportH + margin
-        // Taller than the screen: align its top under the header so recitation
-        // (which starts at the top) is followed from the beginning.
-        : ayahTop - HEADER_OCCLUSION - margin;
-    }
-    if (target == null) return;
-    target = Math.max(0, target);
-    if (Math.abs(target - scrollOffsetRef.current) < 2) return;
-    listRef.current?.scrollToOffset({ offset: target, animated: true });
-  }, [playing]);
-  // Stable mirror of checkAutoScroll (whose identity changes with `playing`) so
-  // the empty-deps onCellLayout/onPageLoaded above — kept stable since they're
-  // passed to every rendered page — can always reach the latest version.
-  const checkAutoScrollRef = useRef(checkAutoScroll);
-  checkAutoScrollRef.current = checkAutoScroll;
-  // The direct trigger: every time the reciting ayah changes, re-run the
-  // check. `playingPage` MUST be in this dependency list even though the
-  // check only reads `playingPageRef.current`: playAyah sets `playing` (ayah)
-  // synchronously but only resolves/sets `playingPage` (and its ref) after an
-  // await, so the very first run of this effect after `playing` changes almost
-  // always fires before `playingPageRef.current` has caught up — it either
-  // silently no-ops (fresh play session, ref still null) or, worse, computes
-  // against the PREVIOUS page's data (ref not yet updated) right at a page
-  // crossing. Nothing else re-triggers this effect once the ref catches up
-  // unless that page happens to be freshly mounting; re-running when
-  // `playingPage` itself changes closes that gap every time.
-  useEffect(() => { checkAutoScroll(); }, [playing?.surah, playing?.ayah, playingPage, checkAutoScroll]);
+  // Live content offset (mirrored from onScroll), read by the mount landing and
+  // the prepend-compensation below.
+  const scrollOffsetRef = useRef(0);
+  // The sticky header overlays the top of the list; the mount landing places the
+  // entry ayah this far below the raw offset so it clears the header.
+  const HEADER_OCCLUSION = t.spacing(16);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      const top = viewableItems.find(v => v.isViewable);
-      if (!top || typeof top.item !== 'number') return;
-      const page = top.item;
+      const top = viewableItems.find(v => v.isViewable && typeof v.item === 'number');
+      if (!top) return;
+      const page = top.item as number;
       headerPageRef.current = page;
       // Note: landedRef is NOT set here. The mount effect owns it — it flips
       // landedRef once the entry-ayah nudge has settled.
@@ -889,11 +844,8 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // Landing: the entry page is at data index 0, so it's already at the top of
   // the content on mount — no page-level jump at all. All we do is scroll so the
   // entry ayah (e.g. 2:183) sits just under the sticky header. scrollOffsetRef
-  // mirrors the live content offset (from onScroll) so we can tell when we've
-  // already arrived.
-  const scrollOffsetRef = useRef(0);
-  const HEADER_OCCLUSION = t.spacing(16);
-
+  // (declared above with the auto-scroll refs) mirrors the live content offset
+  // so we can tell when we've already arrived.
   useEffect(() => {
     landedRef.current = false;
     // No entry ayah → the page top (index 0) is already the right place.
@@ -949,7 +901,10 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
             pendingPrependRef.current = false;
             const delta = h - prev;
             // Shift down by the height the prepended pages added so the page the
-            // user was viewing stays put instead of jumping up.
+            // user was viewing stays put instead of jumping up. Playback appends
+            // are held off while a prepend is pending (see flushPendingPlayPage),
+            // so this delta reflects the prepend's top-growth alone — a
+            // concurrent bottom-append can't inflate it and over-shoot.
             if (delta > 0) {
               const offset = scrollOffsetRef.current + delta;
               scrollOffsetRef.current = offset;
@@ -984,19 +939,20 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
         // regardless (RN's removeClippedSubviews isn't even honoured there),
         // so this legacy clipping was only adding risk with no benefit.
         scrollEventThrottle={16}
-        onLayout={e => { viewportHeightRef.current = e.nativeEvent.layout.height; }}
         onScrollBeginDrag={() => {
           // The user has taken over. Abort the mount landing so a still-pending
           // corrective tick can't yank the view back and look like a jump.
           landedRef.current = true;
-          manualScrollRef.current = true;
+          // Mark the gesture active so playback-driven range appends are held
+          // off until it settles (no content-size change mid-scroll).
+          isScrollingRef.current = true;
         }}
-        onScrollEndDrag={() => {
-          // Don't immediately re-snap to the reciting ayah here — that would
-          // fight the very gesture the user just made. The next ayah change
-          // naturally re-evaluates and catches up if needed.
-          manualScrollRef.current = false;
-        }}
+        // Drag lifted (list may still coast) and momentum fully stopped: the
+        // gesture is settling/settled, so it's safe to apply any playback append
+        // that was deferred to avoid a mid-scroll content-size shift.
+        onScrollEndDrag={() => { isScrollingRef.current = false; flushPendingPlayPage(); }}
+        onMomentumScrollBegin={() => { isScrollingRef.current = true; }}
+        onMomentumScrollEnd={() => { isScrollingRef.current = false; flushPendingPlayPage(); }}
         onScroll={e => {
           const y = e.nativeEvent.contentOffset.y;
           const prevY = scrollOffsetRef.current;
@@ -1035,7 +991,6 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
             // a re-render mid-landing doesn't drop the measurement.
             entryAyah={item === clampedInitial ? highlightAyah : null}
             onEntryOffset={onEntryOffset}
-            onPlayingLayout={onPlayingLayout}
             onCellLayout={onCellLayout}
             onLoaded={onPageLoaded}
             isLast={item === TOTAL_MUSHAF_PAGES}
