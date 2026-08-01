@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -35,8 +35,22 @@ export function VerseAudioListen({ surah, ayah, reciterId, onPlaybackStart }: Pr
   // (setting the same URL wouldn't re-fire an audioUrl-only effect).
   const [playToken, setPlayToken] = useState(0);
 
-  const player = useAudioPlayer(audioUrl);
+  // 250ms sampling (vs. the 500ms default) so the player reports isLoaded/
+  // isBuffering/playing promptly — the offline watchdog below relies on seeing
+  // fresh status, and the everyayah fallback host can take several seconds to
+  // deliver an mp3, so stale status would otherwise trip a false offline.
+  const player = useAudioPlayer(audioUrl, { updateInterval: 250 });
   const playerStatus = useAudioPlayerStatus(player);
+  // Latest status mirrored into a ref so the hard-ceiling watchdog below can
+  // read it when its one-shot timer fires without re-arming on every status
+  // change (which is what lets a perpetually-"buffering" offline attempt hang).
+  const playerStatusRef = useRef(playerStatus);
+  playerStatusRef.current = playerStatus;
+  // Latest UI status mirrored for the one-shot hard-ceiling watchdog so it can
+  // bail if the play was superseded (ayah/reciter changed → status reset) before
+  // the ceiling fired.
+  const statusRef = useRef(status);
+  statusRef.current = status;
   // Recitation audio is always streamed (never bundled), so a playback failure
   // — even with a URL already resolved — is a connectivity problem. Surface it
   // as offline so the connect-to-listen message shows instead of a generic error.
@@ -66,20 +80,44 @@ export function VerseAudioListen({ surah, ayah, reciterId, onPlaybackStart }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playToken]);
 
-  // Offline watchdog for the case where the audio URL was cached before going
-  // offline: getAyahAudioUrl then succeeds from cache, so load() reaches
+  // Soft offline watchdog for the case where the audio URL was cached before
+  // going offline: getAyahAudioUrl then succeeds from cache, so load() reaches
   // playback, but expo-audio silently can't fetch the remote mp3 and
-  // player.play() never throws. If a requested play hasn't loaded or started
-  // after a grace period, surface it as offline. (A fresh, uncached fetch
-  // already fails earlier in load()'s catch.)
+  // player.play() never throws. If a requested play isn't loaded, playing, or
+  // even buffering after a short grace period, it's plainly stuck → offline.
+  // (A fresh, uncached fetch already fails earlier in load()'s catch.)
+  //
+  // The everyayah fallback host is slow (an mp3 can take 5–13s to arrive), so
+  // while isBuffering is true the file is actively downloading — don't call that
+  // offline here; the hard-ceiling watchdog below covers the case where
+  // buffering never actually resolves (true offline can report buffering
+  // indefinitely).
   useEffect(() => {
     if (playToken === 0 || status !== 'ready') return;
-    if (playerStatus.isLoaded || playerStatus.playing) return;
+    if (playerStatus.isLoaded || playerStatus.playing || playerStatus.isBuffering) return;
     const id = setTimeout(() => {
-      if (!playerStatus.isLoaded && !playerStatus.playing) setStatus('offline');
-    }, 6000);
+      if (!playerStatus.isLoaded && !playerStatus.playing && !playerStatus.isBuffering) setStatus('offline');
+    }, 8000);
     return () => clearTimeout(id);
-  }, [playToken, status, playerStatus.isLoaded, playerStatus.playing]);
+  }, [playToken, status, playerStatus.isLoaded, playerStatus.playing, playerStatus.isBuffering]);
+
+  // Hard-ceiling watchdog: a one-shot timer armed the moment a play is
+  // requested (keyed on playToken only, so status changes never re-arm it).
+  // When offline, expo-audio can sit "buffering" forever without ever loading,
+  // which the soft watchdog above intentionally tolerates — this ceiling is the
+  // backstop. If, after a ceiling well above everyayah's worst real load time
+  // (~13s), the audio still hasn't actually loaded or started playing, treat it
+  // as offline regardless of the buffering flag so the retry UI can appear.
+  useEffect(() => {
+    if (playToken === 0) return;
+    const id = setTimeout(() => {
+      // Bail if this play was superseded (ayah/reciter changed → status reset).
+      if (statusRef.current !== 'ready') return;
+      const st = playerStatusRef.current;
+      if (!st.isLoaded && !st.playing) setStatus('offline');
+    }, 25000);
+    return () => clearTimeout(id);
+  }, [playToken]);
 
   const load = async () => {
     setStatus('loading');

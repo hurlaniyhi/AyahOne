@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { useTheme, type Theme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
@@ -18,6 +19,8 @@ import { arabicFontFor, arabicLineHeight as arabicLineHeightFor, isQuranWordToke
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS, TAJWEED_LABELS, TAJWEED_LEGEND_ORDER } from '@/lib/tajweed';
 import { VerseAudioListen } from '@/components/VerseAudioListen';
 import { InlineNotice } from '@/components/InlineNotice';
+import { SurahPickerSheet } from '@/components/SurahPickerSheet';
+import { useBestRecitationScore } from '@/store/selectors';
 
 // Selection highlight tuned per theme so the current ayah stays legible. The
 // bright accent `primarySoft` washed out light Arabic text on the dark
@@ -208,11 +211,14 @@ function SurahPlate({ surah }: { surah: number }) {
 // Each ayah is a tappable inline segment; the selected ayah is highlighted and
 // surfaces an action bar (handled by the parent via onSelect).
 function PageView({
-  content, arabicSize, selected, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, cellRef, isLast,
+  content, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, cellRef, isLast,
 }: {
   content: PageContent;
   arabicSize: number;
   selected: { surah: number; ayah: number } | null;
+  // The entry ayah highlighted on mount without surfacing the action bar (that's
+  // gated on `selected`). Cleared once the user taps an ayah or starts playback.
+  entryHighlight: { surah: number; ayah: number } | null;
   playing: { surah: number; ayah: number } | null;
   // 0-based index of the word being recited within the `playing` ayah, or null
   // when there's no word-timing data for it (most reciters/ayahs).
@@ -350,6 +356,10 @@ function PageView({
               {group.ayahs.map(a => {
                 const isSel = selected?.surah === a.surah && selected?.ayah === a.numberInSurah;
                 const isPlaying = playing?.surah === a.surah && playing?.ayah === a.numberInSurah;
+                // Entry highlight uses the same background as a manual selection
+                // but doesn't surface the action bar (the popup is gated on
+                // `selected`); it marks where the user was on entering page mode.
+                const isEntry = entryHighlight?.surah === a.surah && entryHighlight?.ayah === a.numberInSurah;
                 // Word-sync only on the reciting ayah and only when we have a
                 // resolved active word; otherwise fall back to the normal
                 // (tajweed-coloured or plain) render.
@@ -364,7 +374,7 @@ function PageView({
                       fontFamily: font,
                       fontSize: arabicSize,
                       lineHeight,
-                      backgroundColor: isPlaying ? playHl : isSel ? hl : 'transparent',
+                      backgroundColor: isPlaying ? playHl : isSel || isEntry ? hl : 'transparent',
                     }}
                   >
                     {wordSynced
@@ -416,12 +426,13 @@ function PageView({
 // the page actually holding the reciting ayah — every other mounted page sees
 // identical props and bails out of re-rendering.
 const LazyPage = React.memo(function LazyPage({
-  page, anchorSurah, arabicSize, selected, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded, isLast,
+  page, anchorSurah, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded, isLast,
 }: {
   page: number;
   anchorSurah: number;
   arabicSize: number;
   selected: { surah: number; ayah: number } | null;
+  entryHighlight: { surah: number; ayah: number } | null;
   playing: { surah: number; ayah: number } | null;
   activeWord: number | null;
   onSelectAyah: (a: PageAyah) => void;
@@ -456,7 +467,7 @@ const LazyPage = React.memo(function LazyPage({
       <ActivityIndicator size="large" color={t.accent.primary} />
     </View>
   ) : (
-    <PageView content={content} arabicSize={arabicSize} selected={selected} playing={playing} activeWord={activeWord} onSelectAyah={onSelectAyah} entryAyah={entryAyah} onEntryOffset={onEntryOffset} cellRef={cellRef} isLast={isLast} />
+    <PageView content={content} arabicSize={arabicSize} selected={selected} entryHighlight={entryHighlight} playing={playing} activeWord={activeWord} onSelectAyah={onSelectAyah} entryAyah={entryAyah} onEntryOffset={onEntryOffset} cellRef={cellRef} isLast={isLast} />
   );
   return (
     <View
@@ -477,6 +488,7 @@ const LazyPage = React.memo(function LazyPage({
 export default function PageModeReader({ initialPage, anchorSurah, highlightAyah, onPositionChange, onOpenTefseer }: Props) {
   const t = useTheme();
   const s = useStrings();
+  const router = useRouter();
   const arabicSize = useAppStore(st => st.settings.arabicFontSize);
   const reciterId = useAppStore(st => st.settings.reciterId);
   const favorites = useAppStore(st => st.favorites);
@@ -489,6 +501,9 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // Collapsible tajweed colour guide, only offered while the tajweed script is
   // active. Closed by default so it never intrudes on the reading surface.
   const [showLegend, setShowLegend] = useState(false);
+  // Surah picker sheet, opened from the header title so the reader can jump to
+  // any surah's first page directly.
+  const [showSurahPicker, setShowSurahPicker] = useState(false);
 
   const clampedInitial = Math.max(1, Math.min(TOTAL_MUSHAF_PAGES, initialPage));
 
@@ -505,19 +520,27 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   );
   // Latches while a range extension is in flight so a burst of scroll events
   // doesn't queue multiple prepends before the new pages measure. Reset once the
-  // range actually changes.
+  // range actually changes. Clearing pendingPrependRef here (rather than in
+  // onContentSizeChange) marks the prepend "settled" as soon as the range commit
+  // lands, so deferred playback appends can flush again.
   const extendingRef = useRef(false);
-  useEffect(() => { extendingRef.current = false; }, [range.start, range.end]);
+  useEffect(() => {
+    extendingRef.current = false;
+    pendingPrependRef.current = false;
+  }, [range.start, range.end]);
   // Live mirror of the range so inline handlers (onScroll) read fresh bounds.
   const rangeRef = useRef(range);
   rangeRef.current = range;
-  // Manual prepend compensation (instead of maintainVisibleContentPosition,
-  // which caused a jump on the first scroll after the mount landing). When we
-  // prepend earlier pages, the content grows above the viewport; we remember the
-  // content height at prepend time and, once onContentSizeChange reports the new
-  // (taller) height, shift the scroll offset by the delta so the visible page
-  // stays exactly where it was — no jump.
-  const contentHeightRef = useRef(0);
+  // Prepend anchoring is handled by FlatList's maintainVisibleContentPosition
+  // (minIndexForVisible: 1) — it keeps the first visible page pinned as earlier
+  // pages are inserted above, correctly across the multi-pass async measurement
+  // of variable-height pages. The old manual single-delta offset shift only
+  // compensated the FIRST content-size change, so the later measurements of tall
+  // prepended pages grew the content above the viewport uncompensated and threw
+  // the view to a random page (most visible right after a surah jump, when the
+  // user starts at the top). pendingPrependRef now only gates playback appends
+  // (see flushPendingPlayPage) so a prepend and an append don't both mutate the
+  // range in the same frame.
   const pendingPrependRef = useRef(false);
   // True while the user is actively dragging or the list is coasting under
   // momentum. Playback-driven range appends are deferred until this clears so a
@@ -548,10 +571,17 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     ensurePageInRange(page);
   }, [ensurePageInRange]);
 
-  // Selected ayah drives the highlight + action bar. Seed from the entry
-  // highlight so the user's ayah-mode position stays visible on switch.
-  const [selected, setSelected] = useState<{ surah: number; ayah: number } | null>(
-    highlightAyah ?? null,
+  // Selected ayah drives the highlight + action bar. Starts null so the ayah
+  // options popup never appears by default on entering page mode — it only
+  // shows once the user taps an ayah. (The entry ayah is still scrolled into
+  // view via highlightAyah/the mount landing; that's independent of selection.)
+  const [selected, setSelected] = useState<{ surah: number; ayah: number } | null>(null);
+  // Entry ayah highlighted on mount (the verse the user was on in ayah mode) so
+  // switching modes keeps their place visible — but WITHOUT surfacing the action
+  // bar (that's gated on `selected`). Cleared the moment the user taps an ayah or
+  // starts playback, so it never lingers alongside a fresh selection/highlight.
+  const [entryHighlight, setEntryHighlight] = useState<{ surah: number; ayah: number } | null>(
+    () => highlightAyah ?? null,
   );
   const [pageAnchor, setPageAnchor] = useState(anchorSurah);
 
@@ -568,6 +598,7 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
 
   const onSelectAyah = useCallback((a: PageAyah) => {
     void Haptics.selectionAsync();
+    setEntryHighlight(null);
     setSelected({ surah: a.surah, ayah: a.numberInSurah });
     onPositionChange(a.surah, a.numberInSurah);
   }, [onPositionChange]);
@@ -596,6 +627,12 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   playingRef.current = playing;
   const reciterRef = useRef(reciterId);
   reciterRef.current = reciterId;
+  // Mirrors the latest player status for the one-shot hard-ceiling watchdog
+  // below, which must not re-arm on every status change.
+  const audioStatusRef = useRef(audioStatus);
+  audioStatusRef.current = audioStatus;
+  // Bumped on each fresh playAyah so the hard-ceiling watchdog re-arms per verse.
+  const [playRequestToken, setPlayRequestToken] = useState(0);
 
   // Word-sync state. `karaoke` holds the QUL timestamp data for the ayah being
   // recited (null when the reciter/ayah has none — the common case); `activeWord`
@@ -620,9 +657,12 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // once the new source is set via the didJustFinish/effect chain below.
   const playAyah = useCallback(async (surah: number, ayah: number) => {
     setPlaying({ surah, ayah });
+    setEntryHighlight(null);
     setActiveWord(null);
     setPlaybackError(null);
     retryAyahRef.current = { surah, ayah };
+    // Re-arm the hard-ceiling offline backstop for this verse.
+    setPlayRequestToken(n => n + 1);
     // QUL word-timings only line up with QUL's own recording, so when data
     // exists for this reciter+ayah we must play that exact file to word-sync;
     // otherwise fall back to the standard stream with no per-word highlight.
@@ -718,28 +758,54 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl]);
 
-  // Offline watchdog for a URL that resolved from cache before going offline:
-  // getAyahAudioUrl succeeds, so playAyah reaches playback, but expo-audio
-  // silently can't fetch the remote mp3 and play() never throws — the button
-  // would spin forever. If the source hasn't loaded or started after a grace
-  // period, surface it as offline. Mirrors VerseAudioListen's watchdog.
+  // Soft offline watchdog for a URL that resolved from cache before going
+  // offline: getAyahAudioUrl succeeds, so playAyah reaches playback, but
+  // expo-audio silently can't fetch the remote mp3 and play() never throws —
+  // the button would spin forever. If the source isn't loaded, playing, or even
+  // buffering after a short grace period, it's plainly stuck → offline.
+  // Mirrors VerseAudioListen's watchdog.
+  //
+  // isBuffering means the file is actively downloading — the everyayah fallback
+  // host can take 5–13s per mp3, so treat buffering as working here; the
+  // hard-ceiling watchdog below is the backstop for buffering that never
+  // resolves (true offline can report buffering indefinitely).
+  const clearPlaybackForOffline = useCallback(() => {
+    try { audioPlayer.pause(); } catch {}
+    setAudioUrl(null);
+    setKaraoke(null);
+    setPlayingPage(null);
+    playingPageRef.current = null;
+    setActiveWord(null);
+    setPlaybackError('offline');
+  }, [audioPlayer]);
+
   useEffect(() => {
     if (!audioUrl || !playing) return;
-    if (audioStatus.isLoaded || audioStatus.playing) return;
+    if (audioStatus.isLoaded || audioStatus.playing || audioStatus.isBuffering) return;
     const id = setTimeout(() => {
-      if (!audioStatus.isLoaded && !audioStatus.playing) {
-        try { audioPlayer.pause(); } catch {}
-        setAudioUrl(null);
-        setKaraoke(null);
-        setPlayingPage(null);
-        playingPageRef.current = null;
-        setActiveWord(null);
-        setPlaybackError('offline');
+      if (!audioStatus.isLoaded && !audioStatus.playing && !audioStatus.isBuffering) {
+        clearPlaybackForOffline();
       }
-    }, 6000);
+    }, 8000);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioUrl, playing, audioStatus.isLoaded, audioStatus.playing]);
+  }, [audioUrl, playing, audioStatus.isLoaded, audioStatus.playing, audioStatus.isBuffering, clearPlaybackForOffline]);
+
+  // Hard-ceiling backstop: a one-shot timer re-armed per verse (keyed on
+  // playRequestToken only). When offline, expo-audio can sit "buffering"
+  // forever without loading, which the soft watchdog tolerates — this ceiling
+  // (well above everyayah's ~13s worst load) surfaces offline regardless of the
+  // buffering flag so the retry UI appears instead of an endless spinner.
+  useEffect(() => {
+    if (playRequestToken === 0) return;
+    const id = setTimeout(() => {
+      // Only declare offline if we're still trying to play this verse — the
+      // user may have stopped in the meantime (which clears `playing`).
+      if (!playingRef.current) return;
+      const st = audioStatusRef.current;
+      if (!st.isLoaded && !st.playing) clearPlaybackForOffline();
+    }, 25000);
+    return () => clearTimeout(id);
+  }, [playRequestToken, clearPlaybackForOffline]);
 
   // Advance to the next ayah when the current one finishes. Steps within the
   // surah, then crosses into the next surah's ayah 1, stopping after 114.
@@ -809,6 +875,40 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // The sticky header overlays the top of the list; the mount landing places the
   // entry ayah this far below the raw offset so it clears the header.
   const HEADER_OCCLUSION = t.spacing(16);
+  // Bumped when the user picks a surah from the header. It's the FlatList's
+  // `key`, so a jump remounts the list fresh: with the new window's target page
+  // at data index 0, the remounted list starts at the very top (the surah's
+  // first page). Remounting is what makes the jump reliable — scrolling a
+  // still-mounted virtualized list to offset 0 while it re-lays-out a brand-new
+  // variable-height window kept landing on the wrong place (it retained the old
+  // scroll offset), so from mid-surah it never reached the new surah's start.
+  const [listKey, setListKey] = useState(0);
+
+  // Jump the reader to a surah picked from the header. Stops any recitation,
+  // resolves the surah's first page, and rebuilds the render window so that page
+  // becomes data index 0. Bumping listKey remounts the FlatList so it starts
+  // fresh at the top (the surah's first page) instead of retaining the old
+  // mid-surah scroll offset.
+  const jumpToSurah = useCallback(async (surah: number) => {
+    void Haptics.selectionAsync();
+    if (playingRef.current || playbackError) stopPlayback();
+    setSelected(null);
+    const page = await pageForAyah(surah, 1, translationId, script);
+    const target = Math.max(1, Math.min(TOTAL_MUSHAF_PAGES, page ?? 1));
+    setPageAnchor(surah);
+    setHeader({ page: target, surah });
+    firstAyahByPage.current.set(target, { surah, ayah: 1 });
+    // Reset the scroll/landing bookkeeping so the remounted list's fresh state
+    // (offset 0, target page at index 0) is consistent with our refs.
+    scrollOffsetRef.current = 0;
+    pendingPrependRef.current = false;
+    extendingRef.current = false;
+    initialPageRef.current = target;
+    headerPageRef.current = target;
+    landedRef.current = true;
+    setRange({ start: target, end: Math.min(TOTAL_MUSHAF_PAGES, target + INITIAL_FORWARD) });
+    setListKey(k => k + 1);
+  }, [translationId, script, playbackError, stopPlayback]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
   const onViewableItemsChanged = useRef(
@@ -840,6 +940,10 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const favKey = selected ? `${selected.surah}:${selected.ayah}` : '';
   const isFav = !!favKey && favorites.includes(favKey);
   const isBkm = !!favKey && bookmarks.includes(favKey);
+  // Tints the practice mic once the selected ayah has a recorded attempt, matching
+  // the ayah-mode action bar. Falls back to (1,1) when nothing is selected so the
+  // hook order stays stable; the value is only read while `selected` is set.
+  const bestRecitationScore = useBestRecitationScore(selected?.surah ?? 1, selected?.ayah ?? 1);
 
   // Landing: the entry page is at data index 0, so it's already at the top of
   // the content on mount — no page-level jump at all. All we do is scroll so the
@@ -879,9 +983,33 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clampedInitial, highlightAyah]);
 
+  // Surah-jump landing: on a jump the list remounts (key={listKey}) with the
+  // picked surah's first page at data index 0, so the top of the content IS that
+  // page. But as the pages below it measure asynchronously, maintainVisibleContent-
+  // Position can drift the offset off the very top. Re-assert offset 0 across a
+  // few passes so the surah always opens at its first page. Skipped on the first
+  // render (listKey === 0), which is not a jump — the mount landing owns that.
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) { didMountRef.current = true; return; }
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      scrollOffsetRef.current = 0;
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    };
+    const timers = [0, 60, 160, 320, 550, 800].map(ms => setTimeout(tick, ms));
+    return () => { cancelled = true; timers.forEach(clearTimeout); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listKey]);
+
   return (
     <View style={{ flex: 1 }}>
       <FlatList
+        // Remounts on a surah jump so the list starts fresh at the top (the
+        // picked surah's first page, placed at data index 0) rather than
+        // retaining the previous mid-surah scroll offset.
+        key={listKey}
         ref={listRef}
         data={data}
         keyExtractor={p => String(p)}
@@ -890,28 +1018,14 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
         // top on mount — no jump, and the offset model stays consistent with the
         // real layout (which the old fake uniform layout broke).
         showsVerticalScrollIndicator={false}
-        // Keep the visible page anchored when earlier pages are prepended by
-        // compensating the scroll offset manually (see pendingPrependRef). This
-        // replaces maintainVisibleContentPosition, which caused a jump on the
-        // first scroll after the mount landing.
-        onContentSizeChange={(_w, h) => {
-          const prev = contentHeightRef.current;
-          contentHeightRef.current = h;
-          if (pendingPrependRef.current) {
-            pendingPrependRef.current = false;
-            const delta = h - prev;
-            // Shift down by the height the prepended pages added so the page the
-            // user was viewing stays put instead of jumping up. Playback appends
-            // are held off while a prepend is pending (see flushPendingPlayPage),
-            // so this delta reflects the prepend's top-growth alone — a
-            // concurrent bottom-append can't inflate it and over-shoot.
-            if (delta > 0) {
-              const offset = scrollOffsetRef.current + delta;
-              scrollOffsetRef.current = offset;
-              listRef.current?.scrollToOffset({ offset, animated: false });
-            }
-          }
-        }}
+        // Keep the first visible page pinned as earlier pages are prepended
+        // above it. RN's built-in anchoring handles the multi-pass async
+        // measurement of variable-height pages correctly (the old manual
+        // single-delta compensation only fixed the first content-size change and
+        // then drifted, throwing the view to a random page). minIndexForVisible:
+        // 1 anchors to the first item BELOW index 0, so the mount landing's own
+        // scroll (and the fresh top after a surah-jump remount) isn't fought.
+        maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
         // Append later pages as the user nears the bottom. Appending never
         // shifts the current scroll position, so forward scrolling stays smooth.
         onEndReachedThreshold={1.5}
@@ -944,12 +1058,13 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           // corrective tick can't yank the view back and look like a jump.
           landedRef.current = true;
           // Mark the gesture active so playback-driven range appends are held
-          // off until it settles (no content-size change mid-scroll).
+          // off until it settles (a mid-gesture append at the bottom is harmless,
+          // but deferring keeps the visible page rock-steady while dragging).
           isScrollingRef.current = true;
         }}
         // Drag lifted (list may still coast) and momentum fully stopped: the
         // gesture is settling/settled, so it's safe to apply any playback append
-        // that was deferred to avoid a mid-scroll content-size shift.
+        // that was deferred to keep the visible page steady while dragging.
         onScrollEndDrag={() => { isScrollingRef.current = false; flushPendingPlayPage(); }}
         onMomentumScrollBegin={() => { isScrollingRef.current = true; }}
         onMomentumScrollEnd={() => { isScrollingRef.current = false; flushPendingPlayPage(); }}
@@ -960,9 +1075,10 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           // Prepend earlier pages only while the user is actively scrolling UP
           // toward the top (y decreasing). Gated on landing so we never prepend
           // mid-landing, and on upward direction so the first downward scroll
-          // after landing can't trigger a compensating shift. pendingPrependRef
-          // tells the next onContentSizeChange to compensate the offset;
-          // extendingRef latches so a burst of events queues only one prepend.
+          // after landing doesn't needlessly extend. maintainVisibleContentPosition
+          // keeps the visible page pinned as the pages insert above; pendingPrependRef
+          // just holds off playback appends until the prepend settles; extendingRef
+          // latches so a burst of events queues only one prepend.
           const r = rangeRef.current;
           const scrollingUp = y < prevY;
           if (landedRef.current && scrollingUp && !extendingRef.current && r.start > 1 && y < PREPEND_TRIGGER_PX) {
@@ -980,6 +1096,7 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
             anchorSurah={pageAnchor}
             arabicSize={arabicSize}
             selected={selected}
+            entryHighlight={entryHighlight}
             playing={playing}
             // Only the page holding the reciting ayah gets the per-tick active
             // word; every other page passes null so they don't re-render on the
@@ -999,10 +1116,9 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
       />
 
       {/* Sticky header: always-visible surah + page indicator that tracks the
-          top-most page as the reader scrolls. The header text is
-          non-interactive so it never intercepts scroll; the tajweed toggle is a
-          separate Pressable overlaid on top. The optional legend panel renders
-          directly beneath it. */}
+          top-most page as the reader scrolls. The surah title is a tappable pill
+          that opens the surah picker; the play button and tajweed toggle sit on
+          the right. The optional legend panel renders directly beneath it. */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
         <View style={{
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -1010,14 +1126,30 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           backgroundColor: t.colors.background,
           borderBottomWidth: showLegend ? 0 : 0.75, borderBottomColor: t.colors.hairline,
         }}>
-          <View pointerEvents="none" style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2), flex: 1 }}>
-            <Text style={{ color: t.colors.text, fontSize: 15, fontWeight: '800' }}>
+          <Pressable
+            onPress={() => { void Haptics.selectionAsync(); setShowSurahPicker(true); }}
+            accessibilityRole="button"
+            accessibilityLabel={s.changeSurah}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              flexDirection: 'row', alignItems: 'center', gap: t.spacing(2),
+              alignSelf: 'flex-start',
+              paddingLeft: t.spacing(3), paddingRight: t.spacing(2), paddingVertical: t.spacing(1.5),
+              borderRadius: t.radius.pill,
+              backgroundColor: pressed
+                ? t.colors.brass + '22'
+                : (t.mode === 'dark' ? 'rgba(209,162,74,0.10)' : 'rgba(176,134,65,0.08)'),
+              borderWidth: 1, borderColor: t.colors.brass + '44',
+            })}
+          >
+            <Text numberOfLines={1} style={{ color: t.colors.text, fontSize: 15, fontWeight: '800' }}>
               {headerMeta?.englishName}
             </Text>
-            <Text style={{ color: t.colors.brass, fontFamily: arabicFontFor('uthmani'), fontSize: 16 }}>
+            <Text numberOfLines={1} style={{ color: t.colors.brass, fontFamily: arabicFontFor('uthmani'), fontSize: 16 }}>
               {headerMeta?.name}
             </Text>
-          </View>
+            <Ionicons name="chevron-down" size={14} color={t.colors.brass} />
+          </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>
             <Text pointerEvents="none" style={{ color: t.colors.textMuted, fontSize: 11, letterSpacing: 1, fontWeight: '700' }}>
               {s.pageLabel.toUpperCase()} {header.page}
@@ -1119,6 +1251,19 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           </View>
           <VerseAudioListen surah={selected.surah} ayah={selected.ayah} reciterId={reciterId} onPlaybackStart={stopPlayback} />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' }}>
+            <Pressable
+              hitSlop={10}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                router.push(`/recite/${selected.surah}?ayah=${selected.ayah}`);
+              }}
+            >
+              <Ionicons
+                name={bestRecitationScore != null ? 'mic' : 'mic-outline'}
+                size={24}
+                color={bestRecitationScore != null ? t.accent.primary : t.colors.textMuted}
+              />
+            </Pressable>
             <Pressable hitSlop={10} onPress={() => onOpenTefseer(selected.surah, selected.ayah)}>
               <Ionicons name="book-outline" size={24} color={t.colors.textMuted} />
             </Pressable>
@@ -1131,6 +1276,13 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           </View>
         </View>
       )}
+
+      <SurahPickerSheet
+        visible={showSurahPicker}
+        selectedSurah={header.surah}
+        onClose={() => setShowSurahPicker(false)}
+        onSelect={n => { void jumpToSurah(n); }}
+      />
     </View>
   );
 }
