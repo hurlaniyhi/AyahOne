@@ -31,10 +31,6 @@ export default function SearchScreen() {
     setHits(text.trim() ? searchCached(text) : []);
   };
 
-  // Arabic is the default; the input flips to LTR only once the user starts
-  // typing Latin characters (transliteration search).
-  const isLatinQuery = q.trim().length > 0 && !/[\u0600-\u06FF]/.test(q);
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }}>
       <Stack.Screen
@@ -62,8 +58,8 @@ export default function SearchScreen() {
             placeholderTextColor={t.colors.textMuted}
             style={{
               flex: 1, color: t.colors.text, fontSize: 16,
-              textAlign: isLatinQuery ? 'left' : 'right',
-              writingDirection: isLatinQuery ? 'ltr' : 'rtl',
+              textAlign: 'right',
+              writingDirection: 'rtl',
             }}
           />
         </View>
@@ -112,11 +108,6 @@ export default function SearchScreen() {
                   >
                     {stripTajweed(item.arabic)}
                   </Text>
-                  {isLatinQuery && item.transliteration ? (
-                    <Text style={{ color: t.colors.textMuted, fontStyle: 'italic' }} numberOfLines={2}>
-                      {item.transliteration}
-                    </Text>
-                  ) : null}
                   {item.translation ? (
                     <Text style={{ color: t.colors.textMuted }} numberOfLines={2}>{item.translation}</Text>
                   ) : null}
