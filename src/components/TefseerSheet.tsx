@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, View, Text, Pressable, ScrollView, ActivityIndicator, Animated, Easing, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
@@ -33,6 +34,7 @@ export function TefseerSheet(props: Props) {
   const { visible, surahName, ayah, arabic, arabicFont, loading, result, error, offline, onRetry, onClose } = props;
   const t = useTheme();
   const s = useStrings();
+  const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(24)).current;
@@ -112,7 +114,14 @@ export function TefseerSheet(props: Props) {
           </View>
 
           {/* Body */}
-          <ScrollView contentContainerStyle={{ padding: t.spacing(5), gap: t.spacing(4) }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={{
+              padding: t.spacing(5),
+              paddingBottom: Math.max(t.spacing(5), insets.bottom + t.spacing(3)),
+              gap: t.spacing(4),
+            }}
+            showsVerticalScrollIndicator={false}
+          >
             {loading ? (
               <View style={{ alignItems: 'center', gap: t.spacing(3), paddingVertical: t.spacing(8) }}>
                 <ActivityIndicator color={t.accent.primary} />
