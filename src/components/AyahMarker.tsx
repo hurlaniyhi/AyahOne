@@ -8,6 +8,10 @@ interface Props {
   number: number;
   size?: number;
   color?: string;
+  /** Set false to render only the star/circle outline, no digit — used as a
+   * plain ornamental motif (e.g. the end-of-page divider) where no specific
+   * verse number applies. */
+  showNumber?: boolean;
 }
 
 /**
@@ -15,7 +19,7 @@ interface Props {
  * Arabic-Indic verse number centered. Used inline at the end of each
  * ayah in the reader, replacing a plain "(8)" parenthesized number.
  */
-export function AyahMarker({ number, size = 28, color }: Props) {
+export function AyahMarker({ number, size = 28, color, showNumber = true }: Props) {
   const t = useTheme();
   const stroke = color ?? t.colors.brass;
   const s = size;
@@ -43,14 +47,16 @@ export function AyahMarker({ number, size = 28, color }: Props) {
           <Circle cx={c} cy={c} r={r * 0.62} />
         </G>
       </Svg>
-      <Text style={{
-        color: stroke,
-        fontSize: Math.round(s * 0.42),
-        fontWeight: '700',
-        lineHeight: Math.round(s * 0.5),
-      }}>
-        {toArabicDigits(number)}
-      </Text>
+      {showNumber && (
+        <Text style={{
+          color: stroke,
+          fontSize: Math.round(s * 0.42),
+          fontWeight: '700',
+          lineHeight: Math.round(s * 0.5),
+        }}>
+          {toArabicDigits(number)}
+        </Text>
+      )}
     </View>
   );
 }

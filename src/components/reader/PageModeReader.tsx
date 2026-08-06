@@ -1,16 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, Pressable, ActivityIndicator, FlatList, Platform,
+  Animated, Easing,
   type ViewToken,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme, type Theme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { useAppStore } from '@/store/appStore';
 import { getSurah } from '@/data/surahs';
+import { JUZ_STARTS } from '@/data/juz';
 import { getPageContent, pageForAyah, TOTAL_MUSHAF_PAGES, type PageAyah, type PageContent } from '@/data/mushafPages';
 import { getAyahAudioUrl, isOfflineError } from '@/data/quranAudio';
 import { getKaraokeAyahData, hasKaraokeSurah, type KaraokeAyahData } from '@/data/hifzKaraoke';
@@ -20,7 +24,27 @@ import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS, TAJWEED_LABELS, TA
 import { VerseAudioListen } from '@/components/VerseAudioListen';
 import { InlineNotice } from '@/components/InlineNotice';
 import { SurahPickerSheet } from '@/components/SurahPickerSheet';
+import { AyahMarker } from '@/components/AyahMarker';
+import { GlassDock } from '@/components/GlassDock';
 import { useBestRecitationScore } from '@/store/selectors';
+
+// Shared mount-only fade+rise used by the toggleable chrome below (ayah
+// action sheet, tajweed legend panel) — entrance only, no exit animation, so
+// a panel's unmount timing (and anything it tears down, e.g. embedded audio)
+// never gets delayed by a fade.
+function useEntranceFade(distance = 12) {
+  const t = useTheme();
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1, duration: t.motion.fast, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    }).start();
+  }, [anim, t.motion.fast]);
+  return {
+    opacity: anim,
+    transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) }],
+  };
+}
 
 // Selection highlight tuned per theme so the current ayah stays legible. The
 // bright accent `primarySoft` washed out light Arabic text on the dark
@@ -52,12 +76,13 @@ function wordHighlightBg(t: Theme): string {
 function TajweedLegendPanel({ onClose }: { onClose: () => void }) {
   const t = useTheme();
   const s = useStrings();
+  const fade = useEntranceFade();
   return (
-    <View style={{
+    <Animated.View style={[{
       backgroundColor: t.colors.surfaceElevated,
       borderBottomWidth: 0.75, borderBottomColor: t.colors.hairline,
       paddingHorizontal: t.spacing(4), paddingTop: t.spacing(3), paddingBottom: t.spacing(3),
-    }}>
+    }, fade]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: t.spacing(2) }}>
         <Text style={{ color: t.colors.brass, fontSize: 11, letterSpacing: 1.5, fontWeight: '700' }}>
           {s.tajweedLegend.toUpperCase()}
@@ -83,7 +108,7 @@ function TajweedLegendPanel({ onClose }: { onClose: () => void }) {
           </View>
         ))}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -186,24 +211,50 @@ function ayahWordCount(a: PageAyah): number {
 // brass plate keeps the mushaf feel and clearly separates surahs mid-page.
 function SurahPlate({ surah }: { surah: number }) {
   const t = useTheme();
+  const s = useStrings();
   const meta = getSurah(surah);
   const font = arabicFontFor('uthmani');
   return (
     <View style={{
-      alignItems: 'center', gap: t.spacing(1),
+      alignItems: 'center', gap: t.spacing(1.5),
       marginVertical: t.spacing(1),
       paddingVertical: t.spacing(3), paddingHorizontal: t.spacing(4),
-      borderRadius: t.radius.lg,
+      borderRadius: t.radius.lg, overflow: 'hidden',
       borderWidth: 1, borderColor: t.colors.brass + '55',
-      backgroundColor: t.mode === 'dark' ? 'rgba(209,162,74,0.06)' : 'rgba(176,134,65,0.05)',
     }}>
-      <Text style={{ color: t.colors.text, fontFamily: font, fontSize: 26, textAlign: 'center' }}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={t.mode === 'dark' ? ['rgba(209,162,74,0.16)', 'transparent'] : ['rgba(176,134,65,0.12)', 'transparent']}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      />
+      <Text style={{ color: t.colors.text, fontFamily: font, fontSize: 28, textAlign: 'center' }}>
         {meta?.name}
       </Text>
-      <Text style={{ color: t.colors.brass, fontSize: 10, letterSpacing: 2, fontWeight: '700' }}>
-        {String(surah).padStart(3, '0')} · {meta?.englishName?.toUpperCase()}
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+        <AyahMarker showNumber={false} size={10} number={0} />
+        <Text style={{ color: t.colors.brass, fontSize: 10, letterSpacing: 2, fontWeight: '700' }}>
+          {String(surah).padStart(3, '0')} · {meta?.englishName?.toUpperCase()} · {meta?.numberOfAyahs} {s.versesCount.toUpperCase()}
+        </Text>
+        <AyahMarker showNumber={false} size={10} number={0} />
+      </View>
     </View>
+  );
+}
+
+// Floating ayah-options popup shell: same frosted "GlassDock" language as
+// ayah mode's bottom nav dock, so both reading modes share one floating-chrome
+// visual vocabulary. Entrance-only fade+rise — no exit animation, so closing
+// it (which must stop any playing VerseAudioListen audio) still unmounts in
+// the same tick it always has, rather than lingering through a fade-out.
+function AyahActionSheet({ bottom, children }: { bottom: number; children: React.ReactNode }) {
+  const t = useTheme();
+  const fade = useEntranceFade();
+  return (
+    <Animated.View style={[{ position: 'absolute', left: t.spacing(4), right: t.spacing(4), bottom }, fade]}>
+      <GlassDock radius={t.radius.xl} style={{ gap: t.spacing(3), paddingVertical: t.spacing(3), paddingHorizontal: t.spacing(4) }}>
+        {children}
+      </GlassDock>
+    </Animated.View>
   );
 }
 
@@ -380,9 +431,9 @@ function PageView({
                     {wordSynced
                       ? renderWordSynced(a, font, arabicSize, activeWord, wordHl)
                       : renderArabic(a, isTajweed, font, arabicSize)}
-                    <Text style={{ color: t.colors.brass, fontFamily: font, fontSize: arabicSize }}>
-                      {' \u06DD'}{toArabicDigits(a.numberInSurah)}{' '}
-                    </Text>
+                    {' '}
+                    <AyahMarker number={a.numberInSurah} size={Math.round(arabicSize * 0.95)} />
+                    {' '}
                   </Text>
                 );
               })}
@@ -414,7 +465,16 @@ function PageView({
         </Text>
       </View>
       {!isLast && (
-        <View style={{ height: t.spacing(2.5), backgroundColor: t.colors.surfaceMuted, marginTop: t.spacing(3) }} />
+        <View style={{ height: t.spacing(4), marginTop: t.spacing(3), alignItems: 'center', justifyContent: 'center' }}>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[t.colors.background, t.colors.brass + '33', t.colors.background]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+          <AyahMarker showNumber={false} size={16} number={0} />
+        </View>
       )}
     </View>
   );
@@ -489,6 +549,7 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const t = useTheme();
   const s = useStrings();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const arabicSize = useAppStore(st => st.settings.arabicFontSize);
   const reciterId = useAppStore(st => st.settings.reciterId);
   const favorites = useAppStore(st => st.favorites);
@@ -551,6 +612,43 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // scrolling; applied once scrolling settles (see onScrollEndDrag /
   // onMomentumScrollEnd).
   const pendingPlayPageRef = useRef<number | null>(null);
+  // The precise verse to land on — fed by BOTH the initial mount (from
+  // `highlightAyah`) and any later in-reader jump (see `jumpTo`), so the same
+  // measured-offset landing logic (below) handles both cases instead of a jump
+  // having its own cruder "scroll to page top" approximation. `ayah: null`
+  // means "no precise verse target, the page's natural top is already
+  // correct" — the case when resuming mid-surah with no specific entry verse.
+  const [landingTarget, setLandingTarget] = useState<{ page: number; surah: number; ayah: number | null }>(() => ({
+    page: clampedInitial,
+    surah: highlightAyah?.surah ?? anchorSurah,
+    ayah: highlightAyah?.ayah ?? null,
+  }));
+  // Transient floating "Page N / TOTAL" indicator (Kindle/Apple-Books style):
+  // fades in on gesture start, fades out ~1s after the gesture settles. Purely
+  // cosmetic — an Animated.Value driven only from the four gesture-lifecycle
+  // scroll callbacks below, never read by or fed into range/prepend/append.
+  const pageIndicatorOpacity = useRef(new Animated.Value(0)).current;
+  const pageIndicatorHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (pageIndicatorHideTimerRef.current) clearTimeout(pageIndicatorHideTimerRef.current);
+  }, []);
+  const showPageIndicator = useCallback(() => {
+    if (pageIndicatorHideTimerRef.current) {
+      clearTimeout(pageIndicatorHideTimerRef.current);
+      pageIndicatorHideTimerRef.current = null;
+    }
+    Animated.timing(pageIndicatorOpacity, {
+      toValue: 1, duration: t.motion.fast, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    }).start();
+  }, [pageIndicatorOpacity, t.motion.fast]);
+  const scheduleHidePageIndicator = useCallback(() => {
+    if (pageIndicatorHideTimerRef.current) clearTimeout(pageIndicatorHideTimerRef.current);
+    pageIndicatorHideTimerRef.current = setTimeout(() => {
+      Animated.timing(pageIndicatorOpacity, {
+        toValue: 0, duration: t.motion.base, easing: Easing.in(Easing.cubic), useNativeDriver: true,
+      }).start();
+    }, 1000);
+  }, [pageIndicatorOpacity, t.motion.base]);
   // Extends the rendered range forward to keep `page` (plus a little lookahead)
   // mounted so its reciting ayah can render/highlight. Appends at the bottom
   // only, so it never shifts the visible position on its own.
@@ -884,28 +982,37 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // scroll offset), so from mid-surah it never reached the new surah's start.
   const [listKey, setListKey] = useState(0);
 
-  // Jump the reader to a surah picked from the header. Stops any recitation,
-  // resolves the surah's first page, and rebuilds the render window so that page
-  // becomes data index 0. Bumping listKey remounts the FlatList so it starts
-  // fresh at the top (the surah's first page) instead of retaining the old
-  // mid-surah scroll offset.
-  const jumpToSurah = useCallback(async (surah: number) => {
+  // Jump the reader to a specific verse — a surah's ayah 1 (Chapter tab) or a
+  // juz's start ayah (Juz tab, almost never ayah 1 of a surah). Stops any
+  // recitation, resolves the mushaf page containing that verse, and rebuilds
+  // the render window so that page becomes data index 0. Bumping listKey
+  // remounts the FlatList so it starts fresh at the top instead of retaining
+  // the old mid-surah scroll offset; setting `landingTarget` drives the
+  // measured-offset landing effect below to scroll to the verse itself, not
+  // just the page's top (which may still show the tail of the PREVIOUS surah
+  // when the target page opens mid-surah).
+  const jumpTo = useCallback(async (surah: number, ayah: number = 1) => {
     void Haptics.selectionAsync();
     if (playingRef.current || playbackError) stopPlayback();
     setSelected(null);
-    const page = await pageForAyah(surah, 1, translationId, script);
-    const target = Math.max(1, Math.min(TOTAL_MUSHAF_PAGES, page ?? 1));
+    const page = await pageForAyah(surah, ayah, translationId, script);
+    // Couldn't resolve (offline/uncached) — leave the reader where it was
+    // rather than landing on mushaf page 1 under the wrong surah's header.
+    if (page == null) return;
+    const target = Math.max(1, Math.min(TOTAL_MUSHAF_PAGES, page));
     setPageAnchor(surah);
     setHeader({ page: target, surah });
-    firstAyahByPage.current.set(target, { surah, ayah: 1 });
     // Reset the scroll/landing bookkeeping so the remounted list's fresh state
-    // (offset 0, target page at index 0) is consistent with our refs.
+    // (offset 0, target page at index 0) is consistent with our refs, and any
+    // measurement left over from the previous landing target can't leak in.
     scrollOffsetRef.current = 0;
     pendingPrependRef.current = false;
     extendingRef.current = false;
     initialPageRef.current = target;
     headerPageRef.current = target;
-    landedRef.current = true;
+    entryOffsetInCellRef.current = null;
+    pageContentTopRef.current.clear();
+    setLandingTarget({ page: target, surah, ayah });
     setRange({ start: target, end: Math.min(TOTAL_MUSHAF_PAGES, target + INITIAL_FORWARD) });
     setListKey(k => k + 1);
   }, [translationId, script, playbackError, stopPlayback]);
@@ -945,24 +1052,28 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // hook order stays stable; the value is only read while `selected` is set.
   const bestRecitationScore = useBestRecitationScore(selected?.surah ?? 1, selected?.ayah ?? 1);
 
-  // Landing: the entry page is at data index 0, so it's already at the top of
-  // the content on mount — no page-level jump at all. All we do is scroll so the
-  // entry ayah (e.g. 2:183) sits just under the sticky header. scrollOffsetRef
-  // (declared above with the auto-scroll refs) mirrors the live content offset
-  // so we can tell when we've already arrived.
+  // Landing: whenever `landingTarget` changes — on mount (seeded from
+  // `highlightAyah`) OR on a later in-reader jump (`jumpTo`, Chapter/Juz tab)
+  // — its target page is already at data index 0 (mount: naturally; jump: via
+  // the listKey remount above), so there's no page-level jump left to do. All
+  // this does is scroll so the target ayah sits just under the sticky header.
+  // scrollOffsetRef (declared above with the auto-scroll refs) mirrors the
+  // live content offset so we can tell when we've already arrived.
   useEffect(() => {
     landedRef.current = false;
-    // No entry ayah → the page top (index 0) is already the right place.
-    if (!highlightAyah) { landedRef.current = true; return; }
+    // No precise verse target → the page top (index 0) is already correct.
+    if (landingTarget.ayah == null) { landedRef.current = true; return; }
     let cancelled = false;
-    // Scroll to the entry ayah's ABSOLUTE content offset = its page cell's top
-    // (layout.y) + the ayah's offset within that cell (measureLayout). Both are
-    // content-space, so no window-coordinate/scroll math is needed — this lands
-    // the verse reliably. Poll a few passes because content assembles async and
-    // the measurements settle over the first few hundred ms.
+    // Scroll to the target ayah's ABSOLUTE content offset = its page cell's
+    // top (layout.y) + the ayah's offset within that cell (measureLayout).
+    // Both are content-space, so no window-coordinate/scroll math is needed —
+    // this lands the verse reliably regardless of whether the page opens with
+    // that verse or with the tail of a previous surah above it. Poll a few
+    // passes because content assembles async and the measurements settle over
+    // the first few hundred ms.
     const tick = () => {
       if (cancelled || landedRef.current) return;
-      const cellTop = pageContentTopRef.current.get(clampedInitial);
+      const cellTop = pageContentTopRef.current.get(landingTarget.page);
       if (cellTop == null) return; // page cell not laid out yet
       const inCell = entryOffsetInCellRef.current;
       // Prefer landing on the verse; fall back to the page top until the ayah's
@@ -981,27 +1092,7 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     const settle = setTimeout(() => { if (!cancelled) { landedRef.current = true; } }, 1400);
     return () => { cancelled = true; timers.forEach(clearTimeout); clearTimeout(settle); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clampedInitial, highlightAyah]);
-
-  // Surah-jump landing: on a jump the list remounts (key={listKey}) with the
-  // picked surah's first page at data index 0, so the top of the content IS that
-  // page. But as the pages below it measure asynchronously, maintainVisibleContent-
-  // Position can drift the offset off the very top. Re-assert offset 0 across a
-  // few passes so the surah always opens at its first page. Skipped on the first
-  // render (listKey === 0), which is not a jump — the mount landing owns that.
-  const didMountRef = useRef(false);
-  useEffect(() => {
-    if (!didMountRef.current) { didMountRef.current = true; return; }
-    let cancelled = false;
-    const tick = () => {
-      if (cancelled) return;
-      scrollOffsetRef.current = 0;
-      listRef.current?.scrollToOffset({ offset: 0, animated: false });
-    };
-    const timers = [0, 60, 160, 320, 550, 800].map(ms => setTimeout(tick, ms));
-    return () => { cancelled = true; timers.forEach(clearTimeout); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listKey]);
+  }, [landingTarget]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -1061,13 +1152,14 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           // off until it settles (a mid-gesture append at the bottom is harmless,
           // but deferring keeps the visible page rock-steady while dragging).
           isScrollingRef.current = true;
+          showPageIndicator();
         }}
         // Drag lifted (list may still coast) and momentum fully stopped: the
         // gesture is settling/settled, so it's safe to apply any playback append
         // that was deferred to keep the visible page steady while dragging.
-        onScrollEndDrag={() => { isScrollingRef.current = false; flushPendingPlayPage(); }}
-        onMomentumScrollBegin={() => { isScrollingRef.current = true; }}
-        onMomentumScrollEnd={() => { isScrollingRef.current = false; flushPendingPlayPage(); }}
+        onScrollEndDrag={() => { isScrollingRef.current = false; flushPendingPlayPage(); scheduleHidePageIndicator(); }}
+        onMomentumScrollBegin={() => { isScrollingRef.current = true; showPageIndicator(); }}
+        onMomentumScrollEnd={() => { isScrollingRef.current = false; flushPendingPlayPage(); scheduleHidePageIndicator(); }}
         onScroll={e => {
           const y = e.nativeEvent.contentOffset.y;
           const prevY = scrollOffsetRef.current;
@@ -1106,7 +1198,8 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
             // Only the entry page measures the switch-in verse (for the mount
             // landing); the entry page renders it regardless of landing state so
             // a re-render mid-landing doesn't drop the measurement.
-            entryAyah={item === clampedInitial ? highlightAyah : null}
+            entryAyah={landingTarget.ayah != null && item === landingTarget.page
+              ? { surah: landingTarget.surah, ayah: landingTarget.ayah } : null}
             onEntryOffset={onEntryOffset}
             onCellLayout={onCellLayout}
             onLoaded={onPageLoaded}
@@ -1119,7 +1212,10 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           top-most page as the reader scrolls. The surah title is a tappable pill
           that opens the surah picker; the play button and tajweed toggle sit on
           the right. The optional legend panel renders directly beneath it. */}
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
+      <View style={{
+        position: 'absolute', top: 0, left: 0, right: 0,
+        shadowColor: '#000', shadowOpacity: t.mode === 'dark' ? 0.35 : 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+      }}>
         <View style={{
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
           paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(3),
@@ -1232,15 +1328,36 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
         )}
       </View>
 
+      {/* Transient page-position indicator (Kindle/Apple-Books style): fades in
+          while actively scrolling, fades out ~1s after the gesture settles.
+          Gated on !selected so it never overlaps the ayah action sheet, which
+          anchors the same bottom region. */}
+      {!selected && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', left: 0, right: 0,
+            bottom: insets.bottom + t.spacing(6), alignItems: 'center',
+            opacity: pageIndicatorOpacity,
+            transform: [{ translateY: pageIndicatorOpacity.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+          }}
+        >
+          <View style={{
+            paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2),
+            borderRadius: t.radius.pill,
+            backgroundColor: t.colors.surfaceElevated,
+            borderWidth: 0.75, borderColor: t.colors.hairline,
+            shadowColor: '#000', shadowOpacity: t.mode === 'dark' ? 0.35 : 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+          }}>
+            <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>
+              {s.pageLabel.toUpperCase()} {header.page} / {TOTAL_MUSHAF_PAGES}
+            </Text>
+          </View>
+        </Animated.View>
+      )}
+
       {selected && (
-        <View style={{
-          position: 'absolute', left: t.spacing(4), right: t.spacing(4), bottom: t.spacing(6),
-          gap: t.spacing(3),
-          backgroundColor: t.colors.surfaceElevated, borderRadius: t.radius.xl,
-          borderWidth: 0.75, borderColor: t.colors.hairline,
-          paddingVertical: t.spacing(3), paddingHorizontal: t.spacing(4),
-          shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6,
-        }}>
+        <AyahActionSheet bottom={Math.max(t.spacing(6), insets.bottom + t.spacing(2))}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: t.colors.brass, fontSize: 11, letterSpacing: 1, fontWeight: '700' }}>
               {getSurah(selected.surah)?.englishName?.toUpperCase()} · {toArabicDigits(selected.ayah)}
@@ -1274,14 +1391,18 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
               <Ionicons name={isBkm ? 'bookmark' : 'bookmark-outline'} size={24} color={isBkm ? t.accent.primary : t.colors.textMuted} />
             </Pressable>
           </View>
-        </View>
+        </AyahActionSheet>
       )}
 
       <SurahPickerSheet
         visible={showSurahPicker}
         selectedSurah={header.surah}
         onClose={() => setShowSurahPicker(false)}
-        onSelect={n => { void jumpToSurah(n); }}
+        onSelectSurah={n => { void jumpTo(n, 1); }}
+        onSelectJuz={j => {
+          const start = JUZ_STARTS[j - 1];
+          if (start) void jumpTo(start.surah, start.ayah);
+        }}
       />
     </View>
   );

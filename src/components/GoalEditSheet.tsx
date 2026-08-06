@@ -137,7 +137,7 @@ export function GoalEditSheet({ visible, onClose }: Props) {
           visible={showSurah}
           selectedSurah={surahNumber}
           onClose={() => setShowSurah(false)}
-          onSelect={(n) => { setSurahNumber(n); setVerse(1); }}
+          onSelectSurah={(n) => { setSurahNumber(n); setVerse(1); }}
         />
         <VersePickerSheet
           visible={showVerse}
