@@ -10,9 +10,10 @@ import { useRouter } from 'expo-router';
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useTheme, type Theme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
-import { useAppStore } from '@/store/appStore';
+import { useAppStore, type ArabicScript } from '@/store/appStore';
 import { getSurah } from '@/data/surahs';
 import { JUZ_STARTS } from '@/data/juz';
 import { getPageContent, pageForAyah, TOTAL_MUSHAF_PAGES, type PageAyah, type PageContent } from '@/data/mushafPages';
@@ -25,6 +26,7 @@ import { VerseAudioListen } from '@/components/VerseAudioListen';
 import { InlineNotice } from '@/components/InlineNotice';
 import { SurahPickerSheet } from '@/components/SurahPickerSheet';
 import { AyahMarker } from '@/components/AyahMarker';
+import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { GlassDock } from '@/components/GlassDock';
 import { useBestRecitationScore } from '@/store/selectors';
 
@@ -145,6 +147,39 @@ const FORWARD_BATCH = 4;     // pages appended each time the end is reached
 const BACKWARD_BATCH = 3;    // pages prepended each time the top is neared
 const PREPEND_TRIGGER_PX = 1200; // scroll-from-top distance that triggers prepend
 
+// Page mode renders a fixed-size mushaf leaf, not a user-adjustable reading
+// surface: the settings font slider (which sizes the single-verse card in
+// ayah mode) intentionally does not apply here, so the page's layout/spacing
+// stays consistent regardless of that setting.
+const PAGE_MODE_ARABIC_SIZE = 25;
+
+// Module-level cache of assembled page content, keyed by page+translation+
+// script, so a page already visited (in this session, across mode switches
+// and surah jumps) mounts with its real content on the very FIRST paint
+// instead of a spinner that's swapped out once the async assembly resolves.
+// That swap is exactly what breaks FlatList's `maintainVisibleContentPosition`
+// when it happens to a PREPENDED page (one inserted above the viewport):
+// anchoring compensates one coordinated size change at insert time, not a
+// second, later, uncoordinated resize once content trickles in — which is
+// what was throwing the view to a random page after a surah switch + scroll
+// up. Prefetching into this cache before a backward extension (see the
+// prepend branch in onScroll below) means the prepended pages' first paint
+// already has their true height, so there's only ever one size change.
+const pageContentCache = new Map<string, PageContent>();
+function pageCacheKey(page: number, translationId: string, script: string): string {
+  return `${page}:${translationId}:${script}`;
+}
+async function loadPageContentCached(
+  page: number, anchorSurah: number, translationId: string, script: ArabicScript,
+): Promise<PageContent> {
+  const key = pageCacheKey(page, translationId, script);
+  const cached = pageContentCache.get(key);
+  if (cached) return cached;
+  const content = await getPageContent(page, anchorSurah, translationId, script);
+  pageContentCache.set(key, content);
+  return content;
+}
+
 // The raw tajweed edition prefixes surah openers with an embedded Bismillah.
 // Strip it (matching the ayah reader) so the standalone Bismillah header isn't
 // duplicated inline. Returns the cleaned raw text (tajweed brackets intact when
@@ -156,6 +191,19 @@ function ayahArabic(a: PageAyah): string {
   const plain = stripTajweed(a.arabic);
   const stripped = stripBismillahPrefix(plain.split(/\s+/).filter(Boolean)).join(' ');
   return stripped === plain ? a.arabic : stripped;
+}
+
+// The ayah-end mark as plain text (U+06DD followed by the Arabic-Indic verse
+// number) rather than the SVG roundel previously embedded inline. An SVG
+// <View> mixed into a flowing RTL <Text> run is only ever laid out as an
+// approximate "attachment" — RN's text-wrapping engine doesn't measure it the
+// way it measures real glyphs, so it could land overlapping the surrounding
+// words once a line wrapped near it. Plain text has none of that risk: the
+// font's own Quranic-annotation shaping (AmiriQuran/ScheherazadeNew both
+// support this convention) composes it into the familiar circular ayah
+// number, and it flows, wraps and highlights exactly like the rest of the verse.
+function ayahMarkerText(number: number): string {
+  return `۝${toArabicDigits(number)}`;
 }
 
 // Renders an ayah's Arabic as tajweed-coloured segments when the tajweed script
@@ -207,35 +255,46 @@ function ayahWordCount(a: PageAyah): number {
   return stripTajweed(ayahArabic(a)).split(/\s+/).filter(Boolean).filter(isQuranWordToken).length || 1;
 }
 
-// Ornamental surah header shown when a surah begins on the page. A framed
-// brass plate keeps the mushaf feel and clearly separates surahs mid-page.
+// Ornamental surah header shown when a surah begins on the page. A double
+// frame (outer brass hairline, inset a second finer one) with a centred glow
+// behind the title reads as an illuminated manuscript plate rather than a
+// plain card, and clearly separates surahs mid-page.
 function SurahPlate({ surah }: { surah: number }) {
   const t = useTheme();
   const s = useStrings();
   const meta = getSurah(surah);
   const font = arabicFontFor('uthmani');
+  const rule = t.colors.brass + '4D';
   return (
     <View style={{
-      alignItems: 'center', gap: t.spacing(1.5),
       marginVertical: t.spacing(1),
-      paddingVertical: t.spacing(3), paddingHorizontal: t.spacing(4),
       borderRadius: t.radius.lg, overflow: 'hidden',
-      borderWidth: 1, borderColor: t.colors.brass + '55',
+      borderWidth: 1, borderColor: t.colors.brass + '5C',
     }}>
       <LinearGradient
         pointerEvents="none"
-        colors={t.mode === 'dark' ? ['rgba(209,162,74,0.16)', 'transparent'] : ['rgba(176,134,65,0.12)', 'transparent']}
+        colors={t.mode === 'dark' ? ['rgba(209,162,74,0.20)', 'rgba(209,162,74,0.02)'] : ['rgba(176,134,65,0.16)', 'rgba(176,134,65,0.02)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />
-      <Text style={{ color: t.colors.text, fontFamily: font, fontSize: 28, textAlign: 'center' }}>
-        {meta?.name}
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
-        <AyahMarker showNumber={false} size={10} number={0} />
-        <Text style={{ color: t.colors.brass, fontSize: 10, letterSpacing: 2, fontWeight: '700' }}>
-          {String(surah).padStart(3, '0')} · {meta?.englishName?.toUpperCase()} · {meta?.numberOfAyahs} {s.versesCount.toUpperCase()}
+      <View style={{
+        margin: 3, borderRadius: t.radius.md, borderWidth: 0.75, borderColor: t.colors.brass + '33',
+        alignItems: 'center', gap: t.spacing(2),
+        paddingVertical: t.spacing(4), paddingHorizontal: t.spacing(4),
+      }}>
+        <Text style={{ color: t.colors.text, fontFamily: font, fontSize: 30, letterSpacing: 0.5, textAlign: 'center' }}>
+          {meta?.name}
         </Text>
-        <AyahMarker showNumber={false} size={10} number={0} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2), alignSelf: 'stretch', justifyContent: 'center' }}>
+          <View style={{ flex: 1, maxWidth: 28, height: 1, backgroundColor: rule }} />
+          <AyahMarker showNumber={false} size={9} number={0} />
+          <Text style={{ color: t.colors.brass, fontSize: 10, letterSpacing: 1.8, fontWeight: '700', textAlign: 'center' }}>
+            {String(surah).padStart(3, '0')} · {meta?.englishName?.toUpperCase()} · {meta?.numberOfAyahs} {s.versesCount.toUpperCase()}
+          </Text>
+          <AyahMarker showNumber={false} size={9} number={0} />
+          <View style={{ flex: 1, maxWidth: 28, height: 1, backgroundColor: rule }} />
+        </View>
       </View>
     </View>
   );
@@ -262,7 +321,7 @@ function AyahActionSheet({ bottom, children }: { bottom: number; children: React
 // Each ayah is a tappable inline segment; the selected ayah is highlighted and
 // surfaces an action bar (handled by the parent via onSelect).
 function PageView({
-  content, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, cellRef, isLast,
+  content, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, cellRef,
 }: {
   content: PageContent;
   arabicSize: number;
@@ -284,7 +343,6 @@ function PageView({
   // ayah's offset within the page (measureLayout is reliable for inline text,
   // unlike measureInWindow which returns bogus coords for nested <Text>).
   cellRef: React.RefObject<View | null>;
-  isLast: boolean;
 }) {
   const t = useTheme();
   const s = useStrings();
@@ -376,16 +434,53 @@ function PageView({
   }, [entryKey, onEntryOffset, measureEntry]);
 
   return (
-    <View style={{ paddingHorizontal: t.spacing(5), paddingTop: t.spacing(3), gap: t.spacing(3) }}>
+    // Outer margin (rather than edge-to-edge) plus the layered card below is
+    // what turns the flowing text into a distinct mushaf "leaf": a lifted
+    // sheet with its own shadow, sitting on the slightly darker reader
+    // background set on the FlatList's wrapper.
+    <View style={{ marginHorizontal: t.spacing(3), marginBottom: t.spacing(6) }}>
+      {/* Background layer: the page's parchment fill, border and shadow live
+          here rather than on the content wrapper — same split used by the
+          ayah-mode verse card — so Android's elevation-driven clipToOutline
+          never clips the Arabic glyphs against a rounded corner. */}
+      <View pointerEvents="none" style={{
+        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: t.colors.surfaceElevated,
+        borderRadius: t.radius.xl,
+        borderWidth: 0.75, borderColor: t.colors.hairline,
+        shadowColor: '#000',
+        shadowOpacity: t.mode === 'dark' ? 0.4 : 0.07,
+        shadowRadius: 20, shadowOffset: { width: 0, height: 10 },
+        elevation: 3,
+      }} />
+      {/* Decoration layer: faint brass arabesque watermarks bleeding off two
+          corners, clipped to the card's own rounded shape on their own layer
+          so they never interact with the text layer's layout/measurement. */}
+      <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: t.radius.xl, overflow: 'hidden' }}>
+        <View style={{ position: 'absolute', right: -44, top: -44, opacity: t.mode === 'dark' ? 0.07 : 0.05 }}>
+          <ArabesqueMark size={200} color={t.colors.brass} />
+        </View>
+        <View style={{ position: 'absolute', left: -44, bottom: -44, opacity: t.mode === 'dark' ? 0.06 : 0.04 }}>
+          <ArabesqueMark size={160} color={t.colors.brass} />
+        </View>
+      </View>
+      <View style={{ paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(5), gap: t.spacing(3) }}>
       {groups.map(group => {
         const showBismillah = group.ayahs[0]?.numberInSurah === 1 && group.surah !== 1 && group.surah !== 9;
         return (
           <View key={group.surah} style={{ gap: t.spacing(2) }}>
             {group.ayahs[0]?.numberInSurah === 1 && <SurahPlate surah={group.surah} />}
             {showBismillah && (
-              <Text style={{ color: t.colors.brass, fontFamily: arabicFontFor('uthmani'), fontSize: arabicSize * 0.8, textAlign: 'center', lineHeight, marginBottom: t.spacing(1) }}>
-                {BISMILLAH}
-              </Text>
+              <View style={{ alignItems: 'center', gap: t.spacing(1.5), marginBottom: t.spacing(1) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+                  <View style={{ width: 22, height: 1, backgroundColor: t.colors.brass + '66' }} />
+                  <View style={{ width: 5, height: 5, backgroundColor: t.colors.brass + 'AA', transform: [{ rotate: '45deg' }] }} />
+                  <View style={{ width: 22, height: 1, backgroundColor: t.colors.brass + '66' }} />
+                </View>
+                <Text style={{ color: t.colors.brass, fontFamily: arabicFontFor('uthmani'), fontSize: arabicSize * 0.85, textAlign: 'center', lineHeight }}>
+                  {BISMILLAH}
+                </Text>
+              </View>
             )}
             <View
               ref={node => {
@@ -400,7 +495,14 @@ function PageView({
               allowFontScaling={false}
               textBreakStrategy="simple"
               style={{
-                textAlign: Platform.OS === 'ios' ? 'justify' : 'right',
+                // 'justify' (previously used on iOS) stretches inter-word
+                // spacing unevenly to fill each line — and since the ayah-end
+                // marker below is an inline View embedded in this same text
+                // run, the stretch concentrates around it, producing outsized
+                // gaps, a marker that reads as "floating" in that gap, and a
+                // per-ayah highlight rectangle that balloons to cover the
+                // stretched space. Plain 'right' avoids all three.
+                textAlign: 'right',
                 writingDirection: 'rtl', lineHeight, color: t.colors.text,
               }}
             >
@@ -416,25 +518,33 @@ function PageView({
                 // (tajweed-coloured or plain) render.
                 const wordSynced = isPlaying && activeWord != null;
                 return (
-                  <Text
-                    key={a.numberInSurah}
-                    onPress={() => onSelectAyah(a)}
-                    suppressHighlighting
-                    style={{
-                      color: t.colors.text,
-                      fontFamily: font,
-                      fontSize: arabicSize,
-                      lineHeight,
-                      backgroundColor: isPlaying ? playHl : isSel || isEntry ? hl : 'transparent',
-                    }}
-                  >
-                    {wordSynced
-                      ? renderWordSynced(a, font, arabicSize, activeWord, wordHl)
-                      : renderArabic(a, isTajweed, font, arabicSize)}
+                  // The separating space AFTER the marker sits OUTSIDE the
+                  // highlighted <Text> (as its own plain sibling) so a
+                  // selection/playing highlight ends right at the marker
+                  // glyph instead of bleeding into the gap before the next
+                  // ayah's first word.
+                  <React.Fragment key={a.numberInSurah}>
+                    <Text
+                      onPress={() => onSelectAyah(a)}
+                      suppressHighlighting
+                      style={{
+                        color: t.colors.text,
+                        fontFamily: font,
+                        fontSize: arabicSize,
+                        lineHeight,
+                        backgroundColor: isPlaying ? playHl : isSel || isEntry ? hl : 'transparent',
+                      }}
+                    >
+                      {wordSynced
+                        ? renderWordSynced(a, font, arabicSize, activeWord, wordHl)
+                        : renderArabic(a, isTajweed, font, arabicSize)}
+                      {' '}
+                      <Text style={{ color: t.colors.brass, fontFamily: font, fontSize: arabicSize }}>
+                        {ayahMarkerText(a.numberInSurah)}
+                      </Text>
+                    </Text>
                     {' '}
-                    <AyahMarker number={a.numberInSurah} size={Math.round(arabicSize * 0.95)} />
-                    {' '}
-                  </Text>
+                  </React.Fragment>
                 );
               })}
             </Text>
@@ -442,40 +552,42 @@ function PageView({
           </View>
         );
       })}
-      {/* End-of-page marker: a centred page number framed by ornamental
-          hairlines, plus a thicker divider (unless this is the final page) that
-          clearly separates one mushaf spread from the next as the reader
-          scrolls the continuous page stream. */}
-      <View style={{ alignItems: 'center', marginTop: t.spacing(4), gap: t.spacing(2) }}>
+      {/* Colophon: a brass medallion holding the page number, flanked by rules
+          that taper from the card's own fill into brass and back — reading as
+          an inlaid seal rather than a plain pill, closing out the leaf. The
+          card's own edge/shadow/outer margin is what separates one mushaf
+          spread from the next, so no extra divider is needed below it. */}
+      <View style={{ alignItems: 'center', marginTop: t.spacing(3), gap: t.spacing(2) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3), alignSelf: 'stretch' }}>
-          <View style={{ flex: 1, height: 0.75, backgroundColor: t.colors.hairline }} />
+          <LinearGradient
+            colors={[t.colors.surfaceElevated, t.colors.brass + '66']}
+            start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+            style={{ flex: 1, height: 1 }}
+          />
           <View style={{
-            minWidth: 40, paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(1),
-            borderRadius: t.radius.pill, borderWidth: 1, borderColor: t.colors.brass + '55',
+            width: 42, height: 42, borderRadius: 21,
             alignItems: 'center', justifyContent: 'center',
+            borderWidth: 1.25, borderColor: t.colors.brass + '99',
           }}>
-            <Text style={{ color: t.colors.brass, fontSize: 12, fontWeight: '700' }}>
+            <View pointerEvents="none" style={{
+              position: 'absolute', width: 32, height: 32, borderRadius: 16,
+              borderWidth: 0.75, borderColor: t.colors.brass + '4D',
+            }} />
+            <Text style={{ color: t.colors.brass, fontSize: 13, fontWeight: '800' }}>
               {content.page}
             </Text>
           </View>
-          <View style={{ flex: 1, height: 0.75, backgroundColor: t.colors.hairline }} />
+          <LinearGradient
+            colors={[t.colors.brass + '66', t.colors.surfaceElevated]}
+            start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+            style={{ flex: 1, height: 1 }}
+          />
         </View>
         <Text style={{ color: t.colors.textMuted, fontSize: 10, letterSpacing: 1.5, fontWeight: '600' }}>
           {s.pageLabel.toUpperCase()} {content.page} / {TOTAL_MUSHAF_PAGES}
         </Text>
       </View>
-      {!isLast && (
-        <View style={{ height: t.spacing(4), marginTop: t.spacing(3), alignItems: 'center', justifyContent: 'center' }}>
-          <LinearGradient
-            pointerEvents="none"
-            colors={[t.colors.background, t.colors.brass + '33', t.colors.background]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-          />
-          <AyahMarker showNumber={false} size={16} number={0} />
-        </View>
-      )}
+      </View>
     </View>
   );
 }
@@ -486,7 +598,7 @@ function PageView({
 // the page actually holding the reciting ayah — every other mounted page sees
 // identical props and bails out of re-rendering.
 const LazyPage = React.memo(function LazyPage({
-  page, anchorSurah, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded, isLast,
+  page, anchorSurah, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded,
 }: {
   page: number;
   anchorSurah: number;
@@ -504,17 +616,29 @@ const LazyPage = React.memo(function LazyPage({
   // (cell top + the ayah's measured offset within the cell).
   onCellLayout?: (page: number, y: number) => void;
   onLoaded?: (content: PageContent) => void;
-  isLast: boolean;
 }) {
   const t = useTheme();
   const translationId = useAppStore(st => st.settings.translationId);
   const script = useAppStore(st => st.settings.arabicScript);
-  const [content, setContent] = useState<PageContent | null>(null);
+  // Cache-hit pages (already visited, or prefetched ahead of a backward
+  // extension — see onScroll below) start with their real content on the
+  // very first render, so there's no spinner-then-resize to desync the
+  // list's scroll anchoring.
+  const [content, setContent] = useState<PageContent | null>(
+    () => pageContentCache.get(pageCacheKey(page, translationId, script)) ?? null,
+  );
 
   useEffect(() => {
     let alive = true;
+    const key = pageCacheKey(page, translationId, script);
+    const cached = pageContentCache.get(key);
+    if (cached) {
+      setContent(cached);
+      onLoaded?.(cached);
+      return;
+    }
     setContent(null);
-    getPageContent(page, anchorSurah, translationId, script)
+    loadPageContentCached(page, anchorSurah, translationId, script)
       .then(c => { if (alive) { setContent(c); onLoaded?.(c); } })
       .catch(() => { if (alive) setContent({ page, ayahs: [], surahs: [] }); });
     return () => { alive = false; };
@@ -527,7 +651,7 @@ const LazyPage = React.memo(function LazyPage({
       <ActivityIndicator size="large" color={t.accent.primary} />
     </View>
   ) : (
-    <PageView content={content} arabicSize={arabicSize} selected={selected} entryHighlight={entryHighlight} playing={playing} activeWord={activeWord} onSelectAyah={onSelectAyah} entryAyah={entryAyah} onEntryOffset={onEntryOffset} cellRef={cellRef} isLast={isLast} />
+    <PageView content={content} arabicSize={arabicSize} selected={selected} entryHighlight={entryHighlight} playing={playing} activeWord={activeWord} onSelectAyah={onSelectAyah} entryAyah={entryAyah} onEntryOffset={onEntryOffset} cellRef={cellRef} />
   );
   return (
     <View
@@ -550,7 +674,7 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const s = useStrings();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const arabicSize = useAppStore(st => st.settings.arabicFontSize);
+  const arabicSize = PAGE_MODE_ARABIC_SIZE;
   const reciterId = useAppStore(st => st.settings.reciterId);
   const favorites = useAppStore(st => st.favorites);
   const bookmarks = useAppStore(st => st.bookmarks);
@@ -1095,7 +1219,10 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   }, [landingTarget]);
 
   return (
-    <View style={{ flex: 1 }}>
+    // A slightly muted background (vs. the card's `surfaceElevated` fill)
+    // gives each mushaf leaf real depth to sit against, instead of blending
+    // into the flat reader background.
+    <View style={{ flex: 1, backgroundColor: t.colors.surface }}>
       <FlatList
         // Remounts on a surah jump so the list starts fresh at the top (the
         // picked surah's first page, placed at data index 0) rather than
@@ -1176,7 +1303,15 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           if (landedRef.current && scrollingUp && !extendingRef.current && r.start > 1 && y < PREPEND_TRIGGER_PX) {
             extendingRef.current = true;
             pendingPrependRef.current = true;
-            setRange(prev => ({ ...prev, start: Math.max(1, prev.start - BACKWARD_BATCH) }));
+            const newStart = Math.max(1, r.start - BACKWARD_BATCH);
+            const pages = Array.from({ length: r.start - newStart }, (_, i) => newStart + i);
+            // Prefetch every prepended page's content BEFORE it enters `range`
+            // (see pageContentCache above) so each one's first paint already
+            // has its real height — the fix for the reader jumping to a
+            // random page after a surah switch + scroll up.
+            void Promise.all(pages.map(p => loadPageContentCached(p, pageAnchor, translationId, script)))
+              .catch(() => {})
+              .then(() => setRange(prev => ({ ...prev, start: newStart })));
           }
         }}
         viewabilityConfig={viewabilityConfig}
@@ -1203,7 +1338,6 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
             onEntryOffset={onEntryOffset}
             onCellLayout={onCellLayout}
             onLoaded={onPageLoaded}
-            isLast={item === TOTAL_MUSHAF_PAGES}
           />
         )}
       />
@@ -1217,11 +1351,28 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
         shadowColor: '#000', shadowOpacity: t.mode === 'dark' ? 0.35 : 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4,
       }}>
         <View style={{
-          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-          paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(3),
-          backgroundColor: t.colors.background,
           borderBottomWidth: showLegend ? 0 : 0.75, borderBottomColor: t.colors.hairline,
+          overflow: 'hidden',
         }}>
+          {/* Frosted glass on iOS (matches GlassDock's floating chrome
+              elsewhere in the app); a solid tint fallback where BlurView
+              renders inconsistently (Android) or isn't available. */}
+          {Platform.OS === 'ios' ? (
+            <BlurView
+              intensity={70}
+              tint={t.mode === 'dark' ? 'dark' : 'light'}
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            />
+          ) : (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.colors.background }} />
+          )}
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(3),
+            backgroundColor: Platform.OS === 'ios'
+              ? (t.mode === 'dark' ? 'rgba(11,17,21,0.32)' : 'rgba(251,247,240,0.45)')
+              : 'transparent',
+          }}>
           <Pressable
             onPress={() => { void Haptics.selectionAsync(); setShowSurahPicker(true); }}
             accessibilityRole="button"
@@ -1279,6 +1430,7 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
                 />
               </Pressable>
             )}
+          </View>
           </View>
         </View>
         {isTajweed && showLegend && (

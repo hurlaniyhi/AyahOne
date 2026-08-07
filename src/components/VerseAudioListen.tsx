@@ -34,6 +34,18 @@ export function VerseAudioListen({ surah, ayah, reciterId, onPlaybackStart }: Pr
   // even when the resolved URL is identical to the one that failed offline
   // (setting the same URL wouldn't re-fire an audioUrl-only effect).
   const [playToken, setPlayToken] = useState(0);
+  // Whether the play the effect below is about to act on is a retry of the
+  // SAME url as before (true) or a brand-new url (false) — set in `load()`,
+  // read once by the effect. Only the retry case needs `player.replace()`;
+  // calling it on a brand-new url raced it against the fresh native load that
+  // `useAudioPlayer(audioUrl)` already kicked off for that same url during
+  // this render (below), leaving the player stuck "buffering" forever and
+  // eventually mis-reported as offline even while online.
+  const isRetryOfSameUrlRef = useRef(false);
+  // Mirrors `audioUrl` so `load()` can tell a fresh url from a same-url retry
+  // without closing over a stale value.
+  const audioUrlRef = useRef(audioUrl);
+  audioUrlRef.current = audioUrl;
 
   // 250ms sampling (vs. the 500ms default) so the player reports isLoaded/
   // isBuffering/playing promptly — the offline watchdog below relies on seeing
@@ -67,14 +79,17 @@ export function VerseAudioListen({ surah, ayah, reciterId, onPlaybackStart }: Pr
   // reconstructed with it (useAudioPlayer recreates synchronously during
   // render when its source changes) — safe to start playback here.
   //
-  // player.replace() is essential for the offline→reconnect retry: expo-audio
+  // player.replace() is ONLY needed for the offline→reconnect retry: expo-audio
   // caches the failed/unloaded state on the player instance, and since the URL
   // is unchanged useAudioPlayer won't rebuild the player, so a bare play()
   // would just replay the cached failure. replace() forces a fresh fetch of
-  // the (same) source so it actually downloads once the network is back.
+  // the (same) source so it actually downloads once the network is back. For a
+  // brand-new url, useAudioPlayer already started loading it fresh this same
+  // render — calling replace() too would issue a second, redundant load
+  // request for that url and race the first one.
   useEffect(() => {
     if (playToken > 0 && audioUrl) {
-      player.replace(audioUrl);
+      if (isRetryOfSameUrlRef.current) player.replace(audioUrl);
       void toggle();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,6 +140,7 @@ export function VerseAudioListen({ surah, ayah, reciterId, onPlaybackStart }: Pr
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const url = await getAyahAudioUrl(surah, ayah, reciterId);
+      isRetryOfSameUrlRef.current = url === audioUrlRef.current;
       setAudioUrl(url);
       setStatus('ready');
       // Request playback via the token so an unchanged URL still replays.

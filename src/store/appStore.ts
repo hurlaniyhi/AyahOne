@@ -64,6 +64,10 @@ export interface Settings {
   // so reminders still fire if the user never opens the picker.
   goalReminderTime: string;
   kahfReminderTime: string;
+  // Whether the user has been shown the one-time notice that page mode
+  // doesn't track ḥasanāt/verses-read/goals. Persisted so it surfaces exactly
+  // once, the first time they switch into page mode.
+  pageModeNoticeSeen: boolean;
 }
 
 export interface BucketStats {
@@ -248,6 +252,7 @@ const DEFAULT_SETTINGS: Settings = {
   notificationsEnabled: true,
   goalReminderTime: '',
   kahfReminderTime: '',
+  pageModeNoticeSeen: false,
 };
 
 const DEFAULT_STATE = {
