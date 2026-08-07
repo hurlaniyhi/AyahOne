@@ -10,6 +10,7 @@ import { useStrings } from '@/i18n/strings';
 import { getSurah } from '@/data/surahs';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { pageForAyah } from '@/data/mushafPages';
+import { bootstrapQuranCache } from '@/lib/precacheBootstrap';
 import PageModeReader from '@/components/reader/PageModeReader';
 import { hasanatFor } from '@/lib/hasanat';
 import { formatNumber } from '@/lib/format';
@@ -370,12 +371,35 @@ export default function VerseReader() {
   // back to ayah mode can resume exactly there.
   const pagePositionRef = useRef<{ surah: number; ayah: number }>({ surah: surahNumber, ayah: startAyah });
 
+  // True while switchToPageMode's own bulk-download (below) is in flight —
+  // drives a spinner on the mode-switch icon so a double-tap can't fire a
+  // second download.
+  const [downloadingScript, setDownloadingScript] = useState(false);
+
   // Switch to the mushaf page containing the ayah currently in view, keeping the
   // user's place. Resolves the page from per-ayah data before flipping so the
   // page reader opens directly on the right spread.
   const switchToPageMode = useCallback(async () => {
-    if (!current) return;
+    if (!current || downloadingScript) return;
     void Haptics.selectionAsync();
+    // The current surah's content already failed to load here in this exact
+    // script/translation (see `error`, set by the load effect above) — page
+    // mode would only land on the identical failure, just without this
+    // screen's own retry card to explain why. Download the whole edition
+    // right here instead of bouncing the user into a mode that can't show
+    // anything either.
+    if (error) {
+      setDownloadingScript(true);
+      await bootstrapQuranCache();
+      setDownloadingScript(false);
+      if (useAppStore.getState().precache.error) {
+        Alert.alert(s.offlineTitle, s.offlineMessage);
+        return;
+      }
+      // Downloaded — reload this surah's own content too, so it's ready the
+      // moment the user comes back to ayah mode.
+      setReloadKey(k => k + 1);
+    }
     const p = await pageForAyah(surahNumber, current.numberInSurah, settings.translationId, settings.arabicScript);
     setPageHighlight({ surah: surahNumber, ayah: current.numberInSurah });
     setPageForMode(p ?? 1);
@@ -384,7 +408,7 @@ export default function VerseReader() {
     // surface and deliberately doesn't feed hasanat/verses-read/goals — those
     // trackers key off ayah-mode's per-verse advance.
     Alert.alert(s.pageModeNoticeTitle, s.pageModeNoticeMessage);
-  }, [current, surahNumber, settings.translationId, settings.arabicScript, setSetting, s]);
+  }, [current, downloadingScript, error, surahNumber, settings.translationId, settings.arabicScript, setSetting, s]);
 
   // Switch back to verse-by-verse, resuming on the verse page mode last
   // surfaced. If page mode drifted into another surah, route there; otherwise
@@ -441,11 +465,15 @@ export default function VerseReader() {
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
             <IconButton onPress={mode === 'page' ? switchToAyahMode : switchToPageMode}>
-              <Ionicons
-                name={mode === 'page' ? 'list-outline' : 'reader-outline'}
-                size={20}
-                color={t.colors.text}
-              />
+              {downloadingScript ? (
+                <ActivityIndicator size="small" color={t.colors.text} />
+              ) : (
+                <Ionicons
+                  name={mode === 'page' ? 'list-outline' : 'reader-outline'}
+                  size={20}
+                  color={t.colors.text}
+                />
+              )}
             </IconButton>
             <IconButton onPress={() => router.push('/settings/account')}>
               <Ionicons name="settings-outline" size={20} color={t.colors.text} />

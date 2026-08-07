@@ -14,6 +14,7 @@ import { BlurView } from 'expo-blur';
 import { useTheme, type Theme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
 import { useAppStore, type ArabicScript } from '@/store/appStore';
+import { bootstrapQuranCache } from '@/lib/precacheBootstrap';
 import { getSurah } from '@/data/surahs';
 import { JUZ_STARTS } from '@/data/juz';
 import { getPageContent, pageForAyah, TOTAL_MUSHAF_PAGES, type PageAyah, type PageContent } from '@/data/mushafPages';
@@ -633,7 +634,7 @@ function PageView({
 // the page actually holding the reciting ayah — every other mounted page sees
 // identical props and bails out of re-rendering.
 const LazyPage = React.memo(function LazyPage({
-  page, anchorSurah, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded,
+  page, anchorSurah, arabicSize, selected, entryHighlight, playing, activeWord, onSelectAyah, entryAyah, onEntryOffset, onCellLayout, onLoaded, onLoadError, reloadToken,
 }: {
   page: number;
   anchorSurah: number;
@@ -651,10 +652,20 @@ const LazyPage = React.memo(function LazyPage({
   // (cell top + the ayah's measured offset within the cell).
   onCellLayout?: (page: number, y: number) => void;
   onLoaded?: (content: PageContent) => void;
+  // Reports a genuine load failure (most commonly a non-default script, e.g.
+  // Tajweed, that's never been downloaded, while offline) up to the parent —
+  // which shows ONE unified offline/retry screen for the whole reader rather
+  // than every mounted/prefetched page separately surfacing its own copy of
+  // the same failure.
+  onLoadError?: () => void;
+  // Bumped by the parent once a retry download succeeds, to re-run the load
+  // below for every currently-mounted page without remounting/losing scroll
+  // position.
+  reloadToken: number;
 }) {
-  const t = useTheme();
   const translationId = useAppStore(st => st.settings.translationId);
   const script = useAppStore(st => st.settings.arabicScript);
+  const t = useTheme();
   // Cache-hit pages (already visited, or prefetched ahead of a backward
   // extension — see onScroll below) start with their real content on the
   // very first render, so there's no spinner-then-resize to desync the
@@ -675,10 +686,10 @@ const LazyPage = React.memo(function LazyPage({
     setContent(null);
     loadPageContentCached(page, anchorSurah, translationId, script)
       .then(c => { if (alive) { setContent(c); onLoaded?.(c); } })
-      .catch(() => { if (alive) setContent({ page, ayahs: [], surahs: [] }); });
+      .catch(() => { if (alive) onLoadError?.(); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, translationId, script]);
+  }, [page, translationId, script, reloadToken]);
 
   const cellRef = useRef<View>(null);
   const body = !content ? (
@@ -717,6 +728,33 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   const toggleBookmark = useAppStore(st => st.toggleBookmark);
   const isTajweed = useAppStore(st => st.settings.arabicScript) === 'tajweed';
   const listRef = useRef<FlatList<number>>(null);
+
+  // Set when ANY currently-mounted/prefetched page fails to load its content
+  // — most commonly a non-default script (e.g. Tajweed) that's never been
+  // downloaded, while offline. Swaps the whole reading surface for ONE
+  // offline/retry screen (mirroring ayah mode's) rather than letting every
+  // page separately render its own copy of the same failure.
+  const [contentUnavailable, setContentUnavailable] = useState(false);
+  const onLoadError = useCallback(() => setContentUnavailable(true), []);
+  // Bumped after a successful retry download so every currently-mounted page
+  // re-runs its load against the now-warm cache, without remounting the list
+  // (which would lose scroll position).
+  const [reloadToken, setReloadToken] = useState(0);
+  const [downloadingScript, setDownloadingScript] = useState(false);
+  const precache = useAppStore(st => st.precache);
+  // Downloads the WHOLE current script/translation edition (not just the one
+  // page that happened to fail first) — every other page would hit the
+  // identical failure otherwise, since it's the same missing edition.
+  const retryDownload = useCallback(async () => {
+    if (downloadingScript) return;
+    setDownloadingScript(true);
+    await bootstrapQuranCache();
+    setDownloadingScript(false);
+    if (!useAppStore.getState().precache.error) {
+      setContentUnavailable(false);
+      setReloadToken(n => n + 1);
+    }
+  }, [downloadingScript]);
 
   // Collapsible tajweed colour guide, only offered while the tajweed script is
   // active. Closed by default so it never intrudes on the reading surface.
@@ -1258,6 +1296,43 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     // gives each mushaf leaf real depth to sit against, instead of blending
     // into the flat reader background.
     <View style={{ flex: 1, backgroundColor: t.colors.surface }}>
+      {contentUnavailable ? (
+        // ONE unified offline/retry screen for the whole reader — mirrors
+        // ayah mode's card (app/read/[surah].tsx) so a missing script/
+        // translation download reads the same way in either mode. Retrying
+        // downloads the whole edition (not just the one page that happened
+        // to fail first), since every other page would hit the identical
+        // failure otherwise.
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: t.spacing(3), paddingHorizontal: t.spacing(6) }}>
+          <Ionicons name="cloud-offline-outline" size={40} color={t.colors.textMuted} />
+          <Text style={{ color: t.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+            {s.offlineTitle}
+          </Text>
+          <Text style={{ color: t.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: 'center' }}>
+            {s.offlineMessage}
+          </Text>
+          {downloadingScript ? (
+            <View style={{ alignItems: 'center', gap: t.spacing(2), marginTop: t.spacing(1) }}>
+              <ActivityIndicator color={t.accent.primary} />
+              <Text style={{ color: t.colors.textMuted, fontSize: 13, fontWeight: '600' }}>
+                {s.scriptDownloading} {precache.loaded}/{precache.total}
+              </Text>
+            </View>
+          ) : (
+            <Pressable
+              onPress={retryDownload}
+              hitSlop={8}
+              style={{
+                marginTop: t.spacing(1),
+                paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(2.5),
+                borderRadius: t.radius.pill, backgroundColor: t.colors.surfaceMuted,
+              }}
+            >
+              <Text style={{ color: t.colors.brass, fontWeight: '700', fontSize: 14 }}>{s.offlineRetry}</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : (
       <FlatList
         // Remounts on a surah jump so the list starts fresh at the top (the
         // picked surah's first page, placed at data index 0) rather than
@@ -1373,9 +1448,12 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
             onEntryOffset={onEntryOffset}
             onCellLayout={onCellLayout}
             onLoaded={onPageLoaded}
+            onLoadError={onLoadError}
+            reloadToken={reloadToken}
           />
         )}
       />
+      )}
 
       {/* Sticky header: always-visible surah + page indicator that tracks the
           top-most page as the reader scrolls. The surah title is a tappable pill
