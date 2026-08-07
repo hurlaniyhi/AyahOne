@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing, Platform } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, Pressable, Animated, Easing, Platform, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -380,7 +380,14 @@ export default function VerseReader() {
     setPageHighlight({ surah: surahNumber, ayah: current.numberInSurah });
     setPageForMode(p ?? 1);
     setSetting('readingMode', 'page');
-  }, [current, surahNumber, settings.translationId, settings.arabicScript, setSetting]);
+    // One-time heads-up: page mode is a calm continuous-reading surface and
+    // deliberately doesn't feed hasanat/verses-read/goals — those trackers key
+    // off ayah-mode's per-verse advance. Shown once, ever.
+    if (!settings.pageModeNoticeSeen) {
+      setSetting('pageModeNoticeSeen', true);
+      Alert.alert(s.pageModeNoticeTitle, s.pageModeNoticeMessage);
+    }
+  }, [current, surahNumber, settings.translationId, settings.arabicScript, settings.pageModeNoticeSeen, setSetting, s]);
 
   // Switch back to verse-by-verse, resuming on the verse page mode last
   // surfaced. If page mode drifted into another surah, route there; otherwise
