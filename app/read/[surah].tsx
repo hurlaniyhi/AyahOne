@@ -380,14 +380,11 @@ export default function VerseReader() {
     setPageHighlight({ surah: surahNumber, ayah: current.numberInSurah });
     setPageForMode(p ?? 1);
     setSetting('readingMode', 'page');
-    // One-time heads-up: page mode is a calm continuous-reading surface and
-    // deliberately doesn't feed hasanat/verses-read/goals — those trackers key
-    // off ayah-mode's per-verse advance. Shown once, ever.
-    if (!settings.pageModeNoticeSeen) {
-      setSetting('pageModeNoticeSeen', true);
-      Alert.alert(s.pageModeNoticeTitle, s.pageModeNoticeMessage);
-    }
-  }, [current, surahNumber, settings.translationId, settings.arabicScript, settings.pageModeNoticeSeen, setSetting, s]);
+    // Heads-up shown on every switch: page mode is a calm continuous-reading
+    // surface and deliberately doesn't feed hasanat/verses-read/goals — those
+    // trackers key off ayah-mode's per-verse advance.
+    Alert.alert(s.pageModeNoticeTitle, s.pageModeNoticeMessage);
+  }, [current, surahNumber, settings.translationId, settings.arabicScript, setSetting, s]);
 
   // Switch back to verse-by-verse, resuming on the verse page mode last
   // surfaced. If page mode drifted into another surah, route there; otherwise

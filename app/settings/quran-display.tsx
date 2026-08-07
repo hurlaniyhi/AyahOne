@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Platform, ScrollView, View, Text, Pressable, ActivityIndicator } from 'react-native';
+import { Platform, ScrollView, View, Text, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
@@ -201,7 +201,13 @@ export default function QuranDisplayScreen() {
             return (
               <Pressable
                 key={opt.id}
-                onPress={() => setSetting('readingMode', opt.id)}
+                onPress={() => {
+                  setSetting('readingMode', opt.id);
+                  // Same heads-up the in-reader toggle shows (app/read/[surah].tsx)
+                  // — page mode doesn't feed hasanat/verses-read/goals, and this
+                  // card is a second, independent path into that mode.
+                  if (opt.id === 'page') Alert.alert(s.pageModeNoticeTitle, s.pageModeNoticeMessage);
+                }}
                 style={{
                   flex: 1, padding: t.spacing(4), borderRadius: t.radius.lg,
                   backgroundColor: t.colors.surface,

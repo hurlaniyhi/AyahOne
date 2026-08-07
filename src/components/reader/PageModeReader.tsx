@@ -396,24 +396,49 @@ function PageView({
   // Each group's justified <Text> block View node, so we can measureLayout it
   // against the cell — measureLayout on a View is reliable (it's the inline
   // <Text> variant that silently fails), giving the block's true top within
-  // the cell regardless of any headers/Bismillah stacked above it.
+  // the cell. Used to interpolate a landing position WITHIN the block by
+  // word-weight for any ayah after the group's first.
   const groupNodeRef = useRef<Map<number, View>>(new Map());
+  // Each group's OUTER container (SurahPlate + Bismillah + the text block
+  // above), so landing on a surah's very first ayah can reveal that whole
+  // opening flourish instead of jumping straight to the ayah's own words —
+  // measuring only the inner text block (above) for ayah 1 put the landing
+  // offset right at the first word, which scrolled SurahPlate/Bismillah
+  // almost entirely off-screen (HEADER_OCCLUSION is sized for "a bit above one
+  // line of text", nowhere near enough to also clear that ornamental header).
+  const groupContainerRef = useRef<Map<number, View>>(new Map());
 
   // Report the entry ayah's offset WITHIN its page cell so the parent's mount
   // landing can scroll to the verse itself — same reliable block-measure as the
   // reciting ayah (the inline <Text> measureLayout this replaced silently failed
-  // on Android). Measures the entry ayah's surah-group block against the cell,
-  // then estimates the verse's top by cumulative word-weight.
+  // on Android).
   const measureEntry = useCallback(() => {
     if (!onEntryOffset || !entryAyah) return;
+    const cell = cellRef.current;
+    if (!cell) return;
+    if (entryAyah.ayah === 1) {
+      const node = groupContainerRef.current.get(entryAyah.surah);
+      if (!node) return;
+      node.measureLayout(
+        cell,
+        (_x: number, y: number, _width: number, blockH: number) => {
+          if (blockH < 8 || y < 0) return; // ignore pre-layout measurements
+          onEntryOffset(y);
+        },
+        () => {},
+      );
+      return;
+    }
+    // Any other ayah: measure the group's own text block and estimate the
+    // verse's top by cumulative word-weight within it (justified Arabic fills
+    // lines evenly, so word-weight tracks vertical position closely enough).
     const w = groupWeights.get(entryAyah.surah);
     const node = groupNodeRef.current.get(entryAyah.surah);
-    const cell = cellRef.current;
-    if (!w || !node || !cell) return;
+    if (!w || !node) return;
     node.measureLayout(
       cell,
       (_x: number, y: number, _width: number, blockH: number) => {
-        if (blockH < 8 || y < 0) return; // ignore pre-layout measurements
+        if (blockH < 8 || y < 0) return;
         const before = w.before.get(entryAyah.ayah) ?? 0;
         onEntryOffset(y + (before / w.total) * blockH);
       },
@@ -468,7 +493,17 @@ function PageView({
       {groups.map(group => {
         const showBismillah = group.ayahs[0]?.numberInSurah === 1 && group.surah !== 1 && group.surah !== 9;
         return (
-          <View key={group.surah} style={{ gap: t.spacing(2) }}>
+          <View
+            key={group.surah}
+            style={{ gap: t.spacing(2) }}
+            ref={node => {
+              if (node) groupContainerRef.current.set(group.surah, node);
+              else groupContainerRef.current.delete(group.surah);
+            }}
+            onLayout={() => {
+              if (entryAyah?.surah === group.surah && entryAyah.ayah === 1) measureEntry();
+            }}
+          >
             {group.ayahs[0]?.numberInSurah === 1 && <SurahPlate surah={group.surah} />}
             {showBismillah && (
               <View style={{ alignItems: 'center', gap: t.spacing(1.5), marginBottom: t.spacing(1) }}>

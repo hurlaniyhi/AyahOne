@@ -10,6 +10,7 @@ import { WelcomeStep } from './WelcomeStep';
 import { FeatureStep, type FeatureConfig } from './FeatureStep';
 import { NameStep } from './NameStep';
 import { DisplayStep } from './DisplayStep';
+import { ReadingModeStep } from './ReadingModeStep';
 import { ReciterStep } from './ReciterStep';
 import { GoalStep } from './GoalStep';
 import { NotificationStep } from './NotificationStep';
@@ -74,8 +75,8 @@ const FEATURES: FeatureConfig[] = [
   },
 ];
 
-// welcome + feature slides + name + display + reciter + goal + notif + finish
-const TOTAL = 1 + FEATURES.length + 6;
+// welcome + feature slides + name + display + reading-mode + reciter + goal + notif + finish
+const TOTAL = 1 + FEATURES.length + 7;
 
 // First-run walkthrough controller. Owns the step index, the sliding
 // enter animation and the shared chrome (back / skip / progress); each step
@@ -114,9 +115,10 @@ export function OnboardingFlow() {
     switch (index - FEATURES.length) {
       case 1: return <NameStep nav={nav} />;
       case 2: return <DisplayStep nav={nav} />;
-      case 3: return <ReciterStep nav={nav} />;
-      case 4: return <GoalStep nav={nav} />;
-      case 5: return <NotificationStep nav={nav} />;
+      case 3: return <ReadingModeStep nav={nav} />;
+      case 4: return <ReciterStep nav={nav} />;
+      case 5: return <GoalStep nav={nav} />;
+      case 6: return <NotificationStep nav={nav} />;
       default: return <FinishStep nav={nav} />;
     }
   };
