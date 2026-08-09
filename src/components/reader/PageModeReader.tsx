@@ -194,17 +194,22 @@ function ayahArabic(a: PageAyah): string {
   return stripped === plain ? a.arabic : stripped;
 }
 
-// The ayah-end mark as plain text (U+06DD followed by the Arabic-Indic verse
-// number) rather than the SVG roundel previously embedded inline. An SVG
-// <View> mixed into a flowing RTL <Text> run is only ever laid out as an
-// approximate "attachment" — RN's text-wrapping engine doesn't measure it the
-// way it measures real glyphs, so it could land overlapping the surrounding
-// words once a line wrapped near it. Plain text has none of that risk: the
-// font's own Quranic-annotation shaping (AmiriQuran/ScheherazadeNew both
-// support this convention) composes it into the familiar circular ayah
-// number, and it flows, wraps and highlights exactly like the rest of the verse.
+// The ayah-end mark as plain text — the verse number framed by the ornate
+// Quranic parentheses ﴿ ﴾ — rather than the SVG roundel previously embedded
+// inline. An SVG <View> mixed into a flowing RTL <Text> run is only ever laid
+// out as an approximate "attachment": RN's text-wrapping engine doesn't
+// measure it the way it measures real glyphs, so it could land overlapping
+// the surrounding words once a line wrapped near it. Plain text has none of
+// that risk, and it flows, wraps and highlights exactly like the rest of the
+// verse. An earlier version used U+06DD (the "end of ayah" mark) expecting
+// the font to compose it with the following digits into one nested circular
+// numeral the way some Quranic fonts do — on Android that composition never
+// happens, so the digits rendered as a separate glyph next to (not inside)
+// the mark. ﴿ ﴾ need no such font-specific composition: they're ordinary
+// punctuation that simply brackets the digits, so the number is guaranteed to
+// sit "inside" its marker on any platform/font.
 function ayahMarkerText(number: number): string {
-  return `۝${toArabicDigits(number)}`;
+  return `﴿${toArabicDigits(number)}﴾`;
 }
 
 // Renders an ayah's Arabic as tajweed-coloured segments when the tajweed script
@@ -575,7 +580,7 @@ function PageView({
                         ? renderWordSynced(a, font, arabicSize, activeWord, wordHl)
                         : renderArabic(a, isTajweed, font, arabicSize)}
                       {' '}
-                      <Text style={{ color: t.colors.brass, fontFamily: font, fontSize: arabicSize }}>
+                      <Text style={{ color: t.colors.brass, fontFamily: font, fontSize: arabicSize * 0.85 }}>
                         {ayahMarkerText(a.numberInSurah)}
                       </Text>
                     </Text>

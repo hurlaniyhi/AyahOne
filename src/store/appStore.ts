@@ -33,7 +33,7 @@ const HIFZ_GOAL_TYPES: HifzGoalType[] = ['whole', 'surahs', 'juzAmma'];
 // (read screen, settings preview) can clamp / map without re-declaring it.
 export const ARABIC_FONT_MIN = 18;
 export const ARABIC_FONT_MAX = 48;
-export const ARABIC_FONT_DEFAULT = 28;
+export const ARABIC_FONT_DEFAULT = 25;
 
 export interface Settings {
   themeMode: ThemeMode;
