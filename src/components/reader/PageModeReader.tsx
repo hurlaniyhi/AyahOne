@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View, Text, Pressable, ActivityIndicator, FlatList, Platform,
   Animated, Easing,
-  type ViewToken,
+  type ViewToken, type NativeSyntheticEvent, type TextLayoutEventData,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -323,6 +323,135 @@ function AyahActionSheet({ bottom, children }: { bottom: number; children: React
   );
 }
 
+// Fraction down each detected line's box where the ruling sits.
+// 0.68 ≈ the text baseline within the tall custom lineHeight — struck
+// straight through the letters, since Arabic letterforms (unlike Latin)
+// carry real ink straddling the baseline. 0.88 cleared the descenders but
+// still read as touching the text — pushed further still for a visible gap
+// between the last ink and the rule, while staying well short of the next
+// line's own floating marks (which start well past 1.0).
+const RULE_LINE_FRACTION = 0.95;
+
+// One surah-group's justified Arabic, ruled like a mushaf page: a soft
+// tapered brass line drawn behind every detected text line. Lives in its own
+// component (rather than inline in PageView's groups.map) because it needs
+// `onTextLayout`'s real per-line boxes — those only exist once this exact
+// <Text> node has laid out, so the ruling has to be local state owned here,
+// not something the parent can precompute.
+function AyahLinesText({
+  group, arabicSize, lineHeight, font, isTajweed, selected, entryHighlight, playing, activeWord, onSelectAyah,
+  hl, playHl, wordHl, groupNodeRef, entryAyah, measureEntry,
+}: {
+  group: { surah: number; ayahs: PageAyah[] };
+  arabicSize: number;
+  lineHeight: number;
+  font: string;
+  isTajweed: boolean;
+  selected: { surah: number; ayah: number } | null;
+  entryHighlight: { surah: number; ayah: number } | null;
+  playing: { surah: number; ayah: number } | null;
+  activeWord: number | null;
+  onSelectAyah: (a: PageAyah) => void;
+  hl: string;
+  playHl: string;
+  wordHl: string;
+  groupNodeRef: React.RefObject<Map<number, View>>;
+  entryAyah?: { surah: number; ayah: number } | null;
+  measureEntry: () => void;
+}) {
+  const t = useTheme();
+  const [lines, setLines] = useState<{ y: number; height: number }[]>([]);
+  // Slightly stronger on the dark "midnight ink" background so the rule keeps
+  // enough presence against it; the warm parchment background needs less.
+  const rule = t.mode === 'dark' ? t.colors.brass + '59' : t.colors.brass + '40';
+
+  return (
+    <View
+      ref={node => {
+        if (node) groupNodeRef.current.set(group.surah, node);
+        else groupNodeRef.current.delete(group.surah);
+      }}
+      onLayout={() => {
+        if (entryAyah?.surah === group.surah) measureEntry();
+      }}
+    >
+      {/* Ruling layer: painted first (behind the glyphs, which are a later
+          sibling and so paint on top) — one tapered hairline per real text
+          line, tracking wherever the justified/wrapped Arabic actually broke. */}
+      <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+        {lines.map((ln, i) => (
+          <LinearGradient
+            key={i}
+            colors={['transparent', rule, rule, 'transparent']}
+            locations={[0, 0.08, 0.92, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{ position: 'absolute', left: 0, right: 0, height: 0.75, top: ln.y + ln.height * RULE_LINE_FRACTION }}
+          />
+        ))}
+      </View>
+      <Text
+        allowFontScaling={false}
+        textBreakStrategy="simple"
+        onTextLayout={(e: NativeSyntheticEvent<TextLayoutEventData>) => setLines(e.nativeEvent.lines)}
+        style={{
+          // 'justify' (previously used on iOS) stretches inter-word
+          // spacing unevenly to fill each line — and since the ayah-end
+          // marker below is an inline View embedded in this same text
+          // run, the stretch concentrates around it, producing outsized
+          // gaps, a marker that reads as "floating" in that gap, and a
+          // per-ayah highlight rectangle that balloons to cover the
+          // stretched space. Plain 'right' avoids all three.
+          textAlign: 'right',
+          writingDirection: 'rtl', lineHeight, color: t.colors.text,
+        }}
+      >
+        {group.ayahs.map(a => {
+          const isSel = selected?.surah === a.surah && selected?.ayah === a.numberInSurah;
+          const isPlaying = playing?.surah === a.surah && playing?.ayah === a.numberInSurah;
+          // Entry highlight uses the same background as a manual selection
+          // but doesn't surface the action bar (the popup is gated on
+          // `selected`); it marks where the user was on entering page mode.
+          const isEntry = entryHighlight?.surah === a.surah && entryHighlight?.ayah === a.numberInSurah;
+          // Word-sync only on the reciting ayah and only when we have a
+          // resolved active word; otherwise fall back to the normal
+          // (tajweed-coloured or plain) render.
+          const wordSynced = isPlaying && activeWord != null;
+          return (
+            // The separating space AFTER the marker sits OUTSIDE the
+            // highlighted <Text> (as its own plain sibling) so a
+            // selection/playing highlight ends right at the marker
+            // glyph instead of bleeding into the gap before the next
+            // ayah's first word.
+            <React.Fragment key={a.numberInSurah}>
+              <Text
+                onPress={() => onSelectAyah(a)}
+                suppressHighlighting
+                style={{
+                  color: t.colors.text,
+                  fontFamily: font,
+                  fontSize: arabicSize,
+                  lineHeight,
+                  backgroundColor: isPlaying ? playHl : isSel || isEntry ? hl : 'transparent',
+                }}
+              >
+                {wordSynced
+                  ? renderWordSynced(a, font, arabicSize, activeWord, wordHl)
+                  : renderArabic(a, isTajweed, font, arabicSize)}
+                {' '}
+                <Text style={{ color: t.colors.brass, fontFamily: font, fontSize: arabicSize * 0.85 }}>
+                  {ayahMarkerText(a.numberInSurah)}
+                </Text>
+              </Text>
+              {' '}
+            </React.Fragment>
+          );
+        })}
+      </Text>
+    </View>
+  );
+}
+
 // Renders a single assembled mushaf page as continuous justified Arabic text.
 // Each ayah is a tappable inline segment; the selected ayah is highlighted and
 // surfaces an action bar (handled by the parent via onSelect).
@@ -523,73 +652,24 @@ function PageView({
                 </Text>
               </View>
             )}
-            <View
-              ref={node => {
-                if (node) groupNodeRef.current.set(group.surah, node);
-                else groupNodeRef.current.delete(group.surah);
-              }}
-              onLayout={() => {
-                if (entryAyah?.surah === group.surah) measureEntry();
-              }}
-            >
-            <Text
-              allowFontScaling={false}
-              textBreakStrategy="simple"
-              style={{
-                // 'justify' (previously used on iOS) stretches inter-word
-                // spacing unevenly to fill each line — and since the ayah-end
-                // marker below is an inline View embedded in this same text
-                // run, the stretch concentrates around it, producing outsized
-                // gaps, a marker that reads as "floating" in that gap, and a
-                // per-ayah highlight rectangle that balloons to cover the
-                // stretched space. Plain 'right' avoids all three.
-                textAlign: 'right',
-                writingDirection: 'rtl', lineHeight, color: t.colors.text,
-              }}
-            >
-              {group.ayahs.map(a => {
-                const isSel = selected?.surah === a.surah && selected?.ayah === a.numberInSurah;
-                const isPlaying = playing?.surah === a.surah && playing?.ayah === a.numberInSurah;
-                // Entry highlight uses the same background as a manual selection
-                // but doesn't surface the action bar (the popup is gated on
-                // `selected`); it marks where the user was on entering page mode.
-                const isEntry = entryHighlight?.surah === a.surah && entryHighlight?.ayah === a.numberInSurah;
-                // Word-sync only on the reciting ayah and only when we have a
-                // resolved active word; otherwise fall back to the normal
-                // (tajweed-coloured or plain) render.
-                const wordSynced = isPlaying && activeWord != null;
-                return (
-                  // The separating space AFTER the marker sits OUTSIDE the
-                  // highlighted <Text> (as its own plain sibling) so a
-                  // selection/playing highlight ends right at the marker
-                  // glyph instead of bleeding into the gap before the next
-                  // ayah's first word.
-                  <React.Fragment key={a.numberInSurah}>
-                    <Text
-                      onPress={() => onSelectAyah(a)}
-                      suppressHighlighting
-                      style={{
-                        color: t.colors.text,
-                        fontFamily: font,
-                        fontSize: arabicSize,
-                        lineHeight,
-                        backgroundColor: isPlaying ? playHl : isSel || isEntry ? hl : 'transparent',
-                      }}
-                    >
-                      {wordSynced
-                        ? renderWordSynced(a, font, arabicSize, activeWord, wordHl)
-                        : renderArabic(a, isTajweed, font, arabicSize)}
-                      {' '}
-                      <Text style={{ color: t.colors.brass, fontFamily: font, fontSize: arabicSize * 0.85 }}>
-                        {ayahMarkerText(a.numberInSurah)}
-                      </Text>
-                    </Text>
-                    {' '}
-                  </React.Fragment>
-                );
-              })}
-            </Text>
-            </View>
+            <AyahLinesText
+              group={group}
+              arabicSize={arabicSize}
+              lineHeight={lineHeight}
+              font={font}
+              isTajweed={isTajweed}
+              selected={selected}
+              entryHighlight={entryHighlight}
+              playing={playing}
+              activeWord={activeWord}
+              onSelectAyah={onSelectAyah}
+              hl={hl}
+              playHl={playHl}
+              wordHl={wordHl}
+              groupNodeRef={groupNodeRef}
+              entryAyah={entryAyah}
+              measureEntry={measureEntry}
+            />
           </View>
         );
       })}
