@@ -154,6 +154,13 @@ const PREPEND_TRIGGER_PX = 1200; // scroll-from-top distance that triggers prepe
 // stays consistent regardless of that setting.
 const PAGE_MODE_ARABIC_SIZE = 25;
 
+// The FlatList's contentContainerStyle paddingTop (= t.spacing(14); spacing is
+// a fixed n*4 regardless of theme, so this is safe to hardcode) — the base
+// offset every page's cumulative top is measured from. Kept as one named
+// constant so the JSX prop and the JS-side cumulative-offset math below can
+// never drift apart.
+const LIST_CONTENT_TOP_PADDING = 56;
+
 // Module-level cache of assembled page content, keyed by page+translation+
 // script, so a page already visited (in this session, across mode switches
 // and surah jumps) mounts with its real content on the very FIRST paint
@@ -732,10 +739,17 @@ const LazyPage = React.memo(function LazyPage({
   // Forwarded to PageView so the entry ayah reports its offset within this cell.
   entryAyah?: { surah: number; ayah: number } | null;
   onEntryOffset?: (offsetInCell: number) => void;
-  // Reports this cell's content-space top (layout.y within the list content) so
-  // the parent can place the page and resolve the entry ayah's absolute offset
-  // (cell top + the ayah's measured offset within the cell).
-  onCellLayout?: (page: number, y: number) => void;
+  // Reports this cell's own measured height, so the parent can derive each
+  // page's cumulative position itself (see LIST_CONTENT_TOP_PADDING /
+  // computeCumulativeTop) via a prefix sum over range.start..page, rather than
+  // trusting onLayout's reported `y` as an absolute content-space offset —
+  // that report was found unreliable specifically on Android under the New
+  // Architecture (Fabric), which is what broke both the surah-jump landing and
+  // the sticky header's page counter there. A page's own HEIGHT measurement
+  // (an intrinsic, single-view value) doesn't depend on Fabric getting a
+  // multi-view cumulative Y position right, so it's the more robust primitive
+  // to build on.
+  onCellLayout?: (page: number, height: number) => void;
   onLoaded?: (content: PageContent) => void;
   // Reports a genuine load failure (most commonly a non-default script, e.g.
   // Tajweed, that's never been downloaded, while offline) up to the parent —
@@ -788,11 +802,9 @@ const LazyPage = React.memo(function LazyPage({
     <View
       ref={cellRef}
       onLayout={e => {
-        // Report the cell's content-space top (layout.y is relative to the list
-        // content), so the parent can place the page and resolve the entry/
-        // reciting ayah's absolute offset without any window-coordinate
-        // conversion.
-        if (onCellLayout) onCellLayout(page, e.nativeEvent.layout.y);
+        // Report the cell's own height (see onCellLayout's prop doc above for
+        // why not the reported y).
+        if (onCellLayout) onCellLayout(page, e.nativeEvent.layout.height);
       }}
     >
       {body}
@@ -1234,13 +1246,33 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
   // below). Declared here so it can gate the entry-ayah measurement in
   // renderItem once landing is done.
   const landedRef = useRef(false);
-  // Content-space top (layout.y within the list content) of each rendered page,
-  // learned from its cell's onLayout. This is the page's exact scroll offset —
-  // the landing target's page-top fallback and the base for the entry-ayah
-  // offset below.
-  const pageContentTopRef = useRef<Map<number, number>>(new Map());
-  const onCellLayout = useCallback((page: number, y: number) => {
-    pageContentTopRef.current.set(page, y);
+  // Each rendered page's own measured height, learned from its cell's
+  // onLayout. Deliberately NOT the reported layout.y: that's supposed to be
+  // the page's absolute content-space top, but was found unreliable
+  // specifically on Android under the New Architecture (Fabric) — which broke
+  // both the surah-jump landing and the sticky header's page counter there.
+  // A single view's own height is a much simpler, more robust primitive; see
+  // computeCumulativeTop below for how the absolute top is derived from it.
+  const pageHeightRef = useRef<Map<number, number>>(new Map());
+  const onCellLayout = useCallback((page: number, height: number) => {
+    pageHeightRef.current.set(page, height);
+  }, []);
+  // Sums measured heights of every page from the current range's start up to
+  // (not including) `page`, on top of the list's fixed top padding — i.e. the
+  // page's absolute content-space top, computed entirely in JS from
+  // intrinsic per-page heights rather than trusted from a native cumulative
+  // Y report. Returns null if any page in that prefix hasn't measured yet (so
+  // callers can retry later rather than land on a wrong, partial sum).
+  const computeCumulativeTop = useCallback((page: number): number | null => {
+    const r = rangeRef.current;
+    if (page < r.start || page > r.end) return null;
+    let sum = LIST_CONTENT_TOP_PADDING;
+    for (let p = r.start; p < page; p++) {
+      const h = pageHeightRef.current.get(p);
+      if (h == null) return null;
+      sum += h;
+    }
+    return sum;
   }, []);
   // Offset of the entry ayah WITHIN its page cell (from measureLayout against the
   // cell), reported by PageView once laid out. Added to the cell's content top it
@@ -1293,27 +1325,36 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     initialPageRef.current = target;
     headerPageRef.current = target;
     entryOffsetInCellRef.current = null;
-    pageContentTopRef.current.clear();
+    pageHeightRef.current.clear();
     setLandingTarget({ page: target, surah, ayah });
     setRange({ start: target, end: Math.min(TOTAL_MUSHAF_PAGES, target + INITIAL_FORWARD) });
     setListKey(k => k + 1);
   }, [translationId, script, playbackError, stopPlayback]);
+
+  // Shared by BOTH the viewability callback below and the onScroll-derived
+  // fallback next to the FlatList: updates the sticky header (and the shared
+  // position) for whichever page is now topmost. Pulled out so a second,
+  // independent way of detecting "the top page changed" can drive the exact
+  // same update — see the onScroll handler for why a second path exists.
+  const updateHeaderForPage = useCallback((page: number) => {
+    headerPageRef.current = page;
+    // Note: landedRef is NOT set here. The mount effect owns it — it flips
+    // landedRef once the entry-ayah nudge has settled.
+    const first = firstAyahByPage.current.get(page);
+    setHeader(h => (h.page === page && (first == null || h.surah === first.surah) ? h : { page, surah: first?.surah ?? h.surah }));
+    if (first && page !== initialPageRef.current) {
+      setPageAnchor(first.surah);
+      onPositionChangeRef.current(first.surah, first.ayah);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       const top = viewableItems.find(v => v.isViewable && typeof v.item === 'number');
       if (!top) return;
-      const page = top.item as number;
-      headerPageRef.current = page;
-      // Note: landedRef is NOT set here. The mount effect owns it — it flips
-      // landedRef once the entry-ayah nudge has settled.
-      const first = firstAyahByPage.current.get(page);
-      setHeader(h => (h.page === page && (first == null || h.surah === first.surah) ? h : { page, surah: first?.surah ?? h.surah }));
-      if (first && page !== initialPageRef.current) {
-        setPageAnchor(first.surah);
-        onPositionChangeRef.current(first.surah, first.ayah);
-      }
+      updateHeaderForPage(top.item as number);
     },
   ).current;
 
@@ -1347,16 +1388,16 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
     if (landingTarget.ayah == null) { landedRef.current = true; return; }
     let cancelled = false;
     // Scroll to the target ayah's ABSOLUTE content offset = its page cell's
-    // top (layout.y) + the ayah's offset within that cell (measureLayout).
-    // Both are content-space, so no window-coordinate/scroll math is needed —
-    // this lands the verse reliably regardless of whether the page opens with
-    // that verse or with the tail of a previous surah above it. Poll a few
-    // passes because content assembles async and the measurements settle over
-    // the first few hundred ms.
+    // computed top (computeCumulativeTop) + the ayah's offset within that
+    // cell (measureLayout). Both are content-space, so no window-coordinate/
+    // scroll math is needed — this lands the verse reliably regardless of
+    // whether the page opens with that verse or with the tail of a previous
+    // surah above it. Poll a few passes because content assembles async and
+    // the measurements settle over the first few hundred ms.
     const tick = () => {
       if (cancelled || landedRef.current) return;
-      const cellTop = pageContentTopRef.current.get(landingTarget.page);
-      if (cellTop == null) return; // page cell not laid out yet
+      const cellTop = computeCumulativeTop(landingTarget.page);
+      if (cellTop == null) return; // a page in the prefix hasn't measured yet
       const inCell = entryOffsetInCellRef.current;
       // Prefer landing on the verse; fall back to the page top until the ayah's
       // in-cell offset has measured.
@@ -1433,12 +1474,19 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
         showsVerticalScrollIndicator={false}
         // Keep the first visible page pinned as earlier pages are prepended
         // above it. RN's built-in anchoring handles the multi-pass async
-        // measurement of variable-height pages correctly (the old manual
+        // measurement of variable-height pages correctly on iOS (the old manual
         // single-delta compensation only fixed the first content-size change and
         // then drifted, throwing the view to a random page). minIndexForVisible:
         // 1 anchors to the first item BELOW index 0, so the mount landing's own
         // scroll (and the fresh top after a surah-jump remount) isn't fought.
-        maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+        // iOS only: on Android this prop has known reliability problems — it can
+        // fight both a manual scrollToOffset (the surah-jump landing below) and
+        // the viewability engine that drives the sticky header's page counter,
+        // which is exactly the "doesn't land on the new surah" / "page counter
+        // freezes while scrolling" combo reported there. The backward-prepend
+        // below is correspondingly iOS-only too, since prepending pages above
+        // the viewport without this prop's compensation would visibly jump.
+        maintainVisibleContentPosition={Platform.OS === 'ios' ? { minIndexForVisible: 1 } : undefined}
         // Append later pages as the user nears the bottom. Appending never
         // shifts the current scroll position, so forward scrolling stays smooth.
         onEndReachedThreshold={1.5}
@@ -1486,16 +1534,40 @@ export default function PageModeReader({ initialPage, anchorSurah, highlightAyah
           const y = e.nativeEvent.contentOffset.y;
           const prevY = scrollOffsetRef.current;
           scrollOffsetRef.current = y;
-          // Prepend earlier pages only while the user is actively scrolling UP
-          // toward the top (y decreasing). Gated on landing so we never prepend
-          // mid-landing, and on upward direction so the first downward scroll
-          // after landing doesn't needlessly extend. maintainVisibleContentPosition
-          // keeps the visible page pinned as the pages insert above; pendingPrependRef
-          // just holds off playback appends until the prepend settles; extendingRef
-          // latches so a burst of events queues only one prepend.
+          // Second, independent path to the sticky header's page counter:
+          // derive the topmost page directly from the scroll offset and each
+          // mounted page's own measured height (computeCumulativeTop — a JS
+          // prefix sum, not a trusted native cumulative Y), rather than
+          // relying solely on onViewableItemsChanged below. onScroll is a
+          // plain native event that fires reliably on both platforms; the
+          // viewability calculation it's backing up is the one observed to
+          // freeze on Android. Harmless on iOS — updateHeaderForPage no-ops
+          // when the page hasn't actually changed. Walks forward from the
+          // range's start, so it stops as soon as a page's computed top
+          // exceeds the probe point (or its height hasn't measured yet).
+          const probeY = y + HEADER_OCCLUSION;
           const r = rangeRef.current;
+          let top = LIST_CONTENT_TOP_PADDING;
+          let topPage: number | null = null;
+          for (let p = r.start; p <= r.end; p++) {
+            if (top > probeY) break;
+            topPage = p;
+            const h = pageHeightRef.current.get(p);
+            if (h == null) break;
+            top += h;
+          }
+          if (topPage != null) updateHeaderForPage(topPage);
+          // Prepend earlier pages only while the user is actively scrolling UP
+          // toward the top (y decreasing), and only on iOS — see
+          // maintainVisibleContentPosition above for why Android skips this.
+          // Gated on landing so we never prepend mid-landing, and on upward
+          // direction so the first downward scroll after landing doesn't
+          // needlessly extend. maintainVisibleContentPosition keeps the visible
+          // page pinned as the pages insert above; pendingPrependRef just holds
+          // off playback appends until the prepend settles; extendingRef latches
+          // so a burst of events queues only one prepend.
           const scrollingUp = y < prevY;
-          if (landedRef.current && scrollingUp && !extendingRef.current && r.start > 1 && y < PREPEND_TRIGGER_PX) {
+          if (Platform.OS === 'ios' && landedRef.current && scrollingUp && !extendingRef.current && r.start > 1 && y < PREPEND_TRIGGER_PX) {
             extendingRef.current = true;
             pendingPrependRef.current = true;
             const newStart = Math.max(1, r.start - BACKWARD_BATCH);
