@@ -9,6 +9,7 @@ import { Button } from '@/components/Button';
 import { FontSizeSlider } from '@/components/FontSizeSlider';
 import { ToggleRow } from '@/components/SettingsRow';
 import { Card } from '@/components/Card';
+import { bootstrapQuranCache } from '@/lib/precacheBootstrap';
 import { StepHeader, OnbFooter, type OnbNav } from './parts';
 
 // Short Bismillah previews per edition so the script cards feel like real
@@ -34,6 +35,16 @@ export function DisplayStep({ nav }: { nav: OnbNav }) {
     { id: 'tajweed', label: s.scriptTajweed },
   ];
 
+  // Otherwise the new edition is only ever fetched lazily, one surah at a
+  // time, as content happens to be requested — page mode in particular can
+  // touch many different surahs while scrolling, so warm the whole thing in
+  // the background right away. Fire-and-forget: onboarding keeps moving, and
+  // bootstrapQuranCache already no-ops quickly if it's cached.
+  const selectScript = (id: ArabicScript) => {
+    setSetting('arabicScript', id);
+    void bootstrapQuranCache();
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: t.spacing(5), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
@@ -50,7 +61,7 @@ export function DisplayStep({ nav }: { nav: OnbNav }) {
               return (
                 <Pressable
                   key={opt.id}
-                  onPress={() => setSetting('arabicScript', opt.id)}
+                  onPress={() => selectScript(opt.id)}
                   style={{
                     flex: 1, paddingVertical: t.spacing(3), paddingHorizontal: t.spacing(2),
                     borderRadius: t.radius.lg, alignItems: 'center', gap: t.spacing(2),

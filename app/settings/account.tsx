@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ScrollView, View, Text, Pressable, Modal, FlatList, Image, Alert, Linking } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, View, Text, Pressable, Modal, FlatList, Image, Alert, Linking, TextInput, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -35,6 +35,9 @@ const SCRIPT_LABEL_KEY = {
   tajweed: 'scriptTajweed',
 } as const;
 
+// Mirrors the presets in GoalEditSheet.tsx / onboarding's GoalStep.tsx.
+const GOAL_PRESETS = [5, 10, 20, 50, 100];
+
 const LANG_OPTIONS: { id: AppLanguage; labelKey: 'langEnglish' | 'langArabic' | 'langFrench' }[] = [
   { id: 'en', labelKey: 'langEnglish' },
   { id: 'ar', labelKey: 'langArabic' },
@@ -51,6 +54,28 @@ export default function AccountSettings() {
   const setProfilePhoto = useAppStore(st => st.setProfilePhoto);
   const dailyGoal = useAppStore(st => st.dailyGoalVerses);
   const setDailyGoal = useAppStore(st => st.setDailyGoal);
+  // Whether the goal is being entered as a free-form number rather than one
+  // of the presets — seeded from the current goal so a previously-set custom
+  // value shows the input pre-filled instead of no chip active at all.
+  const [goalCustomMode, setGoalCustomMode] = useState(() => !GOAL_PRESETS.includes(dailyGoal));
+  const [goalCustomText, setGoalCustomText] = useState(() => (!GOAL_PRESETS.includes(dailyGoal) ? String(dailyGoal) : ''));
+  // The goal section is the last thing in the ScrollView, so the custom
+  // field sits right where the keyboard would otherwise cover it.
+  // KeyboardAvoidingView's own padding calculation was still leaving a
+  // sliver covered (it commonly under-shoots by the bottom safe-area inset
+  // when paired with a SafeAreaView) — reserving the keyboard's OWN reported
+  // height as scroll padding is exact, since it comes straight from the
+  // event rather than a platform heuristic.
+  const scrollRef = useRef<ScrollView>(null);
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const onShow = Keyboard.addListener('keyboardDidShow', e => {
+      setKbHeight(e.endCoordinates.height);
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    const onHide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => { onShow.remove(); onHide.remove(); };
+  }, []);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   // Which time picker is open: 'goal', 'kahf', or null. One picker at a time
@@ -103,7 +128,11 @@ export default function AccountSettings() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['bottom']}>
-      <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(3) }}>
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8) + kbHeight, gap: t.spacing(3) }}
+      >
         {/* Profile hero — photo + name preview, framed against the accent
             tint so the avatar reads as the focal point of the screen. */}
         <View style={{ alignItems: 'center', paddingVertical: t.spacing(2), gap: t.spacing(2) }}>
@@ -250,12 +279,12 @@ export default function AccountSettings() {
           gap: t.spacing(3),
         }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: t.spacing(2) }}>
-            {[5, 10, 20, 50, 100].map(n => {
-              const active = dailyGoal === n;
+            {GOAL_PRESETS.map(n => {
+              const active = !goalCustomMode && dailyGoal === n;
               return (
                 <Pressable
                   key={n}
-                  onPress={() => setDailyGoal(n)}
+                  onPress={() => { setDailyGoal(n); setGoalCustomMode(false); setGoalCustomText(''); }}
                   style={{
                     paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2),
                     borderRadius: t.radius.pill,
@@ -270,7 +299,53 @@ export default function AccountSettings() {
                 </Pressable>
               );
             })}
+            {/* A verse goal outside the presets has no chip of its own
+                otherwise — tapping this reveals a plain number field instead
+                of forcing a fixed count. */}
+            <Pressable
+              onPress={() => {
+                setGoalCustomMode(true);
+                if (!goalCustomText) setGoalCustomText(String(dailyGoal));
+              }}
+              style={{
+                paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(2),
+                borderRadius: t.radius.pill,
+                backgroundColor: goalCustomMode ? t.accent.primary : t.colors.surfaceMuted,
+                borderWidth: 1,
+                borderColor: goalCustomMode ? t.accent.primary : 'transparent',
+              }}
+            >
+              <Text style={{ color: goalCustomMode ? t.accent.onPrimary : t.colors.text, fontWeight: '700' }}>
+                {s.goalCustomLabel}
+              </Text>
+            </Pressable>
           </View>
+          {goalCustomMode && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+              <TextInput
+                value={goalCustomText}
+                onChangeText={txt => {
+                  const digits = txt.replace(/[^0-9]/g, '');
+                  setGoalCustomText(digits);
+                  const n = parseInt(digits, 10);
+                  if (n > 0) setDailyGoal(n);
+                }}
+                placeholder={s.goalCustomPlaceholder}
+                placeholderTextColor={t.colors.textMuted}
+                keyboardType="number-pad"
+                maxLength={4}
+                style={{
+                  flex: 1,
+                  backgroundColor: t.colors.background,
+                  borderWidth: 1, borderColor: t.accent.primary,
+                  borderRadius: t.radius.md,
+                  paddingHorizontal: t.spacing(3), paddingVertical: t.spacing(2.5),
+                  color: t.colors.text, fontSize: 16, fontWeight: '700',
+                }}
+              />
+              <Text style={{ color: t.colors.textMuted, fontWeight: '600' }}>{s.versesPerDay}</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
 

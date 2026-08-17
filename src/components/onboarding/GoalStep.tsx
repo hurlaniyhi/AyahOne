@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
@@ -18,6 +18,12 @@ export function GoalStep({ nav }: { nav: OnbNav }) {
   const s = useStrings();
   const goal = useAppStore(st => st.dailyGoalVerses);
   const setDailyGoal = useAppStore(st => st.setDailyGoal);
+  // Whether the goal is being entered as a free-form number rather than one
+  // of the presets — seeded from the current goal so a value carried in from
+  // a previous run of this step (back/forward navigation) shows the input
+  // pre-filled instead of no chip active at all.
+  const [customMode, setCustomMode] = useState(() => !GOAL_PRESETS.includes(goal));
+  const [customText, setCustomText] = useState(() => (!GOAL_PRESETS.includes(goal) ? String(goal) : ''));
 
   return (
     <View style={{ flex: 1 }}>
@@ -37,11 +43,11 @@ export function GoalStep({ nav }: { nav: OnbNav }) {
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: t.spacing(2) }}>
           {GOAL_PRESETS.map(n => {
-            const active = goal === n;
+            const active = !customMode && goal === n;
             return (
               <Pressable
                 key={n}
-                onPress={() => setDailyGoal(n)}
+                onPress={() => { setDailyGoal(n); setCustomMode(false); setCustomText(''); }}
                 style={{
                   paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(3),
                   borderRadius: t.radius.pill,
@@ -59,7 +65,55 @@ export function GoalStep({ nav }: { nav: OnbNav }) {
               </Pressable>
             );
           })}
+          {/* A verse goal outside the presets has no chip of its own
+              otherwise — tapping this reveals a plain number field instead of
+              forcing a fixed count. */}
+          <Pressable
+            onPress={() => { setCustomMode(true); if (!customText) setCustomText(String(goal)); }}
+            style={{
+              paddingHorizontal: t.spacing(5), paddingVertical: t.spacing(3),
+              borderRadius: t.radius.pill,
+              backgroundColor: customMode ? t.accent.primary : withAlpha(t.accent.primary, t.mode === 'dark' ? 0.14 : 0.08),
+              borderWidth: 1.25,
+              borderColor: customMode ? t.accent.primary : 'transparent',
+            }}
+          >
+            <Text style={{
+              color: customMode ? t.accent.onPrimary : t.colors.text,
+              fontWeight: '800', fontSize: 16,
+            }}>
+              {s.goalCustomLabel}
+            </Text>
+          </Pressable>
         </View>
+
+        {customMode && (
+          <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: t.spacing(2) }}>
+            <TextInput
+              value={customText}
+              onChangeText={txt => {
+                const digits = txt.replace(/[^0-9]/g, '');
+                setCustomText(digits);
+                const n = parseInt(digits, 10);
+                if (n > 0) setDailyGoal(n);
+              }}
+              placeholder={s.goalCustomPlaceholder}
+              placeholderTextColor={t.colors.textMuted}
+              keyboardType="number-pad"
+              maxLength={4}
+              autoFocus
+              style={{
+                width: 120, textAlign: 'center',
+                backgroundColor: withAlpha(t.accent.primary, t.mode === 'dark' ? 0.14 : 0.08),
+                borderWidth: 1.25, borderColor: t.accent.primary,
+                borderRadius: t.radius.pill,
+                paddingHorizontal: t.spacing(4), paddingVertical: t.spacing(3),
+                color: t.colors.text, fontSize: 16, fontWeight: '800',
+              }}
+            />
+            <Text style={{ color: t.colors.textMuted, fontWeight: '600' }}>{s.versesPerDay}</Text>
+          </View>
+        )}
       </View>
 
       <OnbFooter>
