@@ -13,6 +13,7 @@ import { useStrings } from '@/i18n/strings';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { getAyahAudioUrl, RECITERS } from '@/data/quranAudio';
 import { useTogglePlayback } from '@/lib/useTogglePlayback';
+import { bootstrapQuranCache } from '@/lib/precacheBootstrap';
 import { ArabesqueMark } from '@/components/ArabesqueMark';
 import { FontSizeSlider } from '@/components/FontSizeSlider';
 import { InlineNotice } from '@/components/InlineNotice';
@@ -56,8 +57,20 @@ export default function QuranDisplayScreen() {
   const s = useStrings();
   const settings = useAppStore(st => st.settings);
   const setSetting = useAppStore(st => st.setSetting);
+  const precache = useAppStore(st => st.precache);
 
   const previewSize = settings.arabicFontSize;
+
+  // Picking a script only ever wrote the setting — the new edition was then
+  // fetched lazily, one surah at a time, as content happened to be requested.
+  // Page mode in particular can touch many different surahs while scrolling,
+  // so that left it prone to stalling mid-page on a slow/rate-limited
+  // connection. Warm the whole edition up front instead; bootstrapQuranCache
+  // already no-ops quickly if it's cached.
+  const selectScript = (id: ArabicScript) => {
+    setSetting('arabicScript', id);
+    void bootstrapQuranCache();
+  };
 
   const scriptOptions: { id: ArabicScript; label: string }[] = [
     { id: 'uthmani', label: s.scriptUthmani },
@@ -237,7 +250,7 @@ export default function QuranDisplayScreen() {
             return (
               <Pressable
                 key={opt.id}
-                onPress={() => setSetting('arabicScript', opt.id)}
+                onPress={() => selectScript(opt.id)}
                 style={{
                   padding: t.spacing(4), borderRadius: t.radius.lg,
                   backgroundColor: t.colors.surface,
@@ -262,6 +275,14 @@ export default function QuranDisplayScreen() {
                     }} />
                   )}
                 </View>
+                {active && precache.running && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(2) }}>
+                    <ActivityIndicator size="small" color={t.accent.primary} />
+                    <Text style={{ color: t.colors.textMuted, fontSize: 12, fontWeight: '600' }}>
+                      {s.scriptDownloading} {precache.loaded}/{precache.total}
+                    </Text>
+                  </View>
+                )}
                 <Text
                   numberOfLines={1}
                   allowFontScaling={false}
