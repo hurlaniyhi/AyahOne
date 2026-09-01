@@ -291,40 +291,69 @@ function addTo(target: BucketStats, h: number, t: number, p: number) {
   target.pages += p;
 }
 
+// All persisted fields live under ONE AsyncStorage key, so a single
+// oversized field can make the whole write fail — most commonly
+// `profile.photoUri` on web: expo-image-picker has no real filesystem to
+// hand back a short path from there, so it returns the picture as a `data:`
+// base64 URI (often several hundred KB to a few MB), unlike native's tiny
+// `file://` path. Browsers cap `localStorage` at a few MB per origin
+// (AsyncStorage's native backing has far more headroom), so that one field
+// can push the JSON blob over quota. `dropHeavyFields` strips exactly the
+// large, safely-droppable-once fields (never anything the "looks like a new
+// user" symptom is actually about — hasanat/streaks/settings/etc. are never
+// touched) so a retry can still get the rest of the user's data saved.
+function dropHeavyFields(shape: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...shape,
+    profile: { ...(shape.profile as object), photoUri: null },
+    askHistory: [],
+    tefseerCache: {},
+  };
+}
+
 async function persist(state: Omit<AppState, keyof Actions | 'hydrated'>) {
+  const shape = {
+    settings: state.settings,
+    stats: state.stats,
+    profile: state.profile,
+    onboardingComplete: state.onboardingComplete,
+    lastRead: state.lastRead,
+    surahProgress: state.surahProgress,
+    kahfFriday: state.kahfFriday,
+    favorites: state.favorites,
+    bookmarks: state.bookmarks,
+    dailyGoalVerses: state.dailyGoalVerses,
+    lastGoalCelebrationDate: state.lastGoalCelebrationDate,
+    lastKahfCelebrationDate: state.lastKahfCelebrationDate,
+    // Strip pending model bubbles before persisting — they represent an
+    // in-flight request that can no longer be resolved across reloads.
+    askHistory: state.askHistory.filter(m => !m.pending),
+    recitationHistory: state.recitationHistory,
+    hifzProgress: state.hifzProgress,
+    hifzStreakDays: state.hifzStreakDays,
+    hifzLastActivityDate: state.hifzLastActivityDate,
+    hifzGoalType: state.hifzGoalType,
+    hifzVersesPerDay: state.hifzVersesPerDay,
+    hifzGoalSurahs: state.hifzGoalSurahs,
+    hifzVerifyRecitation: state.hifzVerifyRecitation,
+    hifzPassMark: state.hifzPassMark,
+    hifzVerified: state.hifzVerified,
+    hifzNotes: state.hifzNotes,
+    tefseerCache: state.tefseerCache,
+  };
   try {
-    const data = JSON.stringify({
-      settings: state.settings,
-      stats: state.stats,
-      profile: state.profile,
-      onboardingComplete: state.onboardingComplete,
-      lastRead: state.lastRead,
-      surahProgress: state.surahProgress,
-      kahfFriday: state.kahfFriday,
-      favorites: state.favorites,
-      bookmarks: state.bookmarks,
-      dailyGoalVerses: state.dailyGoalVerses,
-      lastGoalCelebrationDate: state.lastGoalCelebrationDate,
-      lastKahfCelebrationDate: state.lastKahfCelebrationDate,
-      // Strip pending model bubbles before persisting — they represent an
-      // in-flight request that can no longer be resolved across reloads.
-      askHistory: state.askHistory.filter(m => !m.pending),
-      recitationHistory: state.recitationHistory,
-      hifzProgress: state.hifzProgress,
-      hifzStreakDays: state.hifzStreakDays,
-      hifzLastActivityDate: state.hifzLastActivityDate,
-      hifzGoalType: state.hifzGoalType,
-      hifzVersesPerDay: state.hifzVersesPerDay,
-      hifzGoalSurahs: state.hifzGoalSurahs,
-      hifzVerifyRecitation: state.hifzVerifyRecitation,
-      hifzPassMark: state.hifzPassMark,
-      hifzVerified: state.hifzVerified,
-      hifzNotes: state.hifzNotes,
-      tefseerCache: state.tefseerCache,
-    });
-    await AsyncStorage.setItem(STORAGE_KEY, data);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(shape));
   } catch {
-    // ignore
+    // The full write failed (most likely a storage-quota error — see above).
+    // Retry once with the heavy fields dropped so the rest of the user's
+    // progress still saves instead of every future write silently failing
+    // forever under the same oversized key.
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dropHeavyFields(shape)));
+    } catch {
+      // Genuinely out of options — swallow so a storage failure never
+      // crashes the app; the next action's persist() attempt just retries.
+    }
   }
 }
 

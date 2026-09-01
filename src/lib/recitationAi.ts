@@ -3,6 +3,8 @@
 // Gemini's multimodal `generateContent` endpoint accepts inline base64 audio
 // alongside text in the same request — no separate transcription step.
 
+import { Platform } from 'react-native';
+import { File } from 'expo-file-system';
 import { callGeminiJson, hasApiKey, IslamicAiError, type GeminiContent } from './islamicAi';
 import { parseTajweed, TAJWEED_LABELS, type TajweedRule } from './tajweed';
 
@@ -108,6 +110,39 @@ export function tajweedRulesIn(tajweedArabic: string): { rule: TajweedRule; labe
     if (seg.rule) seen.add(seg.rule);
   }
   return Array.from(seen).map(rule => ({ rule, label: TAJWEED_LABELS[rule] }));
+}
+
+// Reads a just-finished recording into base64 + its real mimeType, ready for
+// Gemini's inlineData. Native gets a `file://` path and expo-file-system
+// works exactly as it always has — untouched. Web is different in two ways
+// expo-audio's recorder makes unavoidable: (1) expo-file-system has NO web
+// implementation at all (its web module is a stub whose `File` constructor
+// throws before `.base64()` is ever reached — that throw, not a Gemini
+// rejection, is what "couldn't get feedback right now" was actually
+// surfacing), and (2) the recorder hands back a `blob:` object URL rather
+// than a filesystem path, which isn't something expo-file-system could read
+// even if it were implemented there. Reading the Blob directly via fetch +
+// FileReader sidesteps both. `blob.type` is trusted over a hardcoded
+// mimeType because the actual recorded codec varies by browser (see the
+// mimeType override this pairs with, in the recorder options below).
+export async function readRecordingForFeedback(uri: string): Promise<{ base64: string; mimeType: string }> {
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(uri)).blob();
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        const comma = result.indexOf(',');
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read recording'));
+      reader.readAsDataURL(blob);
+    });
+    return { base64, mimeType: blob.type || 'audio/webm' };
+  }
+  const file = new File(uri);
+  const base64 = await file.base64();
+  return { base64, mimeType: 'audio/aac' };
 }
 
 export async function getRecitationFeedback(

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import {
   useAudioRecorder, useAudioRecorderState,
@@ -20,7 +21,17 @@ interface Options {
 // race handling) shared with app/recite/[surah].tsx, so callers only deal with
 // stage transitions and the finalized recording uri.
 export function useRecitationRecorder({ micPermissionMessage, recordingErrorMessage }: Options) {
-  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  // On web, request a Gemini-compatible container (the preset's own web
+  // default, audio/webm, isn't in Gemini's documented supported-audio list;
+  // audio/mp4 is) — gated by MediaRecorder.isTypeSupported internally by
+  // expo-audio, so unsupported browsers just keep their own default with no
+  // risk to recording itself. See src/lib/recitationAi.ts's
+  // readRecordingForFeedback, which reports whatever actually got used.
+  const recorder = useAudioRecorder(
+    Platform.OS === 'web'
+      ? { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true, web: { ...RecordingPresets.HIGH_QUALITY.web, mimeType: 'audio/mp4' } }
+      : { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true },
+  );
   const recorderState = useAudioRecorderState(recorder, 100);
 
   const [stage, setStage] = useState<RecorderStage>('idle');

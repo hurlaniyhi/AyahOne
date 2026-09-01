@@ -371,6 +371,22 @@ function AyahLinesText({
   // Slightly stronger on the dark "midnight ink" background so the rule keeps
   // enough presence against it; the warm parchment background needs less.
   const rule = t.mode === 'dark' ? t.colors.brass + '59' : t.colors.brass + '40';
+  // react-native-web's <Text> never calls onTextLayout at all (it's simply
+  // unimplemented — confirmed against react-native-web's own source, no
+  // silent partial support to special-case), so `lines` would stay empty on
+  // web forever and no rule would ever render there. Line boxes don't need
+  // to be measured on web at all, though: CSS can tile a repeating
+  // background pattern at exactly `lineHeight` intervals, which lines up
+  // with the browser's own line boxes (they're generated from the same
+  // lineHeight) without any JS measurement — a `backgroundImage` isn't part
+  // of RN's style types, so this is built as a plain CSS string and merged in
+  // as `any`, isolated to this one style object.
+  const webRuleStyle = Platform.OS === 'web' ? ({
+    backgroundImage:
+      `repeating-linear-gradient(to bottom, transparent 0px, transparent ${lineHeight * RULE_LINE_FRACTION - 0.5}px, ` +
+      `${rule} ${lineHeight * RULE_LINE_FRACTION - 0.5}px, ${rule} ${lineHeight * RULE_LINE_FRACTION + 0.5}px, ` +
+      `transparent ${lineHeight * RULE_LINE_FRACTION + 0.5}px, transparent ${lineHeight}px)`,
+  } as any) : null;
 
   return (
     <View
@@ -384,19 +400,25 @@ function AyahLinesText({
     >
       {/* Ruling layer: painted first (behind the glyphs, which are a later
           sibling and so paint on top) — one tapered hairline per real text
-          line, tracking wherever the justified/wrapped Arabic actually broke. */}
-      <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        {lines.map((ln, i) => (
-          <LinearGradient
-            key={i}
-            colors={['transparent', rule, rule, 'transparent']}
-            locations={[0, 0.08, 0.92, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{ position: 'absolute', left: 0, right: 0, height: 0.75, top: ln.y + ln.height * RULE_LINE_FRACTION }}
-          />
-        ))}
-      </View>
+          line, tracking wherever the justified/wrapped Arabic actually broke.
+          Native derives real per-line boxes from onTextLayout below; web uses
+          a repeating CSS background instead (see webRuleStyle above). */}
+      {Platform.OS === 'web' ? (
+        <View pointerEvents="none" style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }, webRuleStyle]} />
+      ) : (
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+          {lines.map((ln, i) => (
+            <LinearGradient
+              key={i}
+              colors={['transparent', rule, rule, 'transparent']}
+              locations={[0, 0.08, 0.92, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{ position: 'absolute', left: 0, right: 0, height: 0.75, top: ln.y + ln.height * RULE_LINE_FRACTION }}
+            />
+          ))}
+        </View>
+      )}
       <Text
         allowFontScaling={false}
         textBreakStrategy="simple"
