@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -63,6 +63,12 @@ export default function RootLayout() {
     ScheherazadeNew_700Bold,
   });
   useEffect(() => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && (navigator as any).storage?.persist) {
+      // Best-effort: ask the browser not to evict this origin's localStorage
+      // under storage pressure. Native has no such API/need — AsyncStorage's
+      // native backing isn't subject to this kind of eviction.
+      void (navigator as any).storage.persist();
+    }
     hydrateAppStore().then(() => {
       setReady(true);
       void bootstrapQuranCache();

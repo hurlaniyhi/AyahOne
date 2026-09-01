@@ -690,6 +690,13 @@ export async function hydrateAppStore(): Promise<void> {
         tefseerCache: sanitizeTefseerCache(data.tefseerCache),
       });
     }
+  } catch (e) {
+    // A parse/migration failure must never leave `hydrated` stuck at false —
+    // that would hold the splash screen forever instead of just losing this
+    // one load's restore. Surfacing it to the console at least makes a
+    // corrupt-payload case diagnosable instead of silently indistinguishable
+    // from "nothing was ever saved".
+    console.error('hydrateAppStore failed', e);
   } finally {
     useAppStore.setState({ hydrated: true });
   }
