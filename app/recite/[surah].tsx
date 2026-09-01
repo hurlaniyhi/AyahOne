@@ -8,7 +8,6 @@ import {
   useAudioRecorder, useAudioRecorderState, useAudioPlayer, useAudioPlayerStatus,
   RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync,
 } from 'expo-audio';
-import { File } from 'expo-file-system';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useAppStore } from '@/store/appStore';
 import { useStrings } from '@/i18n/strings';
@@ -18,7 +17,7 @@ import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/qu
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
 import { useTogglePlayback } from '@/lib/useTogglePlayback';
 import {
-  getRecitationFeedback, tajweedRulesIn, IslamicAiError,
+  getRecitationFeedback, readRecordingForFeedback, tajweedRulesIn, IslamicAiError,
   type RecitationFeedback, type WordFeedback,
 } from '@/lib/recitationAi';
 import { Card } from '@/components/Card';
@@ -82,7 +81,18 @@ export default function RecitationScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedWord, setSelectedWord] = useState<WordFeedback | null>(null);
 
-  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  const recorder = useAudioRecorder(
+    Platform.OS === 'web'
+      // The preset's own web default (audio/webm) isn't in Gemini's
+      // documented supported-audio list; audio/mp4 is. expo-audio only ever
+      // *requests* this — MediaRecorder.isTypeSupported gates it internally,
+      // so browsers that can't encode mp4 (most non-Safari browsers today)
+      // silently fall back to their own default with zero risk of breaking
+      // recording. readRecordingForFeedback reports whatever actually got
+      // used either way, rather than assuming this request succeeded.
+      ? { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true, web: { ...RecordingPresets.HIGH_QUALITY.web, mimeType: 'audio/mp4' } }
+      : { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true },
+  );
   const recorderState = useAudioRecorderState(recorder, 100);
   // Snapshotted explicitly the moment `recorder.stop()` resolves, rather than
   // read live off `recorder`/`recorderState` in the player/upload paths —
@@ -178,7 +188,12 @@ export default function RecitationScreen() {
     sawRecordingRef.current = false;
     setRecordingUri(recorder.uri);
     setRecordedDurationMs(recorderState.durationMillis);
-    setQuietWarning(peakMeteringRef.current < QUIET_PEAK_DBFS);
+    // expo-audio's web recorder never reports `metering` at all (no
+    // AnalyserNode-based level metering exists in its web module), so
+    // peakMeteringRef never moves off its initial floor there — the "quiet"
+    // check would otherwise fire on every single web recording regardless of
+    // actual mic volume, since it has no real signal to judge from.
+    setQuietWarning(Platform.OS !== 'web' && peakMeteringRef.current < QUIET_PEAK_DBFS);
     setStage('recorded');
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -197,9 +212,8 @@ export default function RecitationScreen() {
     setStage('analyzing');
     setErrorMsg(null);
     try {
-      const file = new File(recordingUri);
-      const base64 = await file.base64();
-      const result = await getRecitationFeedback(plainArabic, rules, base64, 'audio/aac');
+      const { base64, mimeType } = await readRecordingForFeedback(recordingUri);
+      const result = await getRecitationFeedback(plainArabic, rules, base64, mimeType);
       setFeedback(result);
       setStage('feedback');
       addRecitationAttempt({

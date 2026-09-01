@@ -35,6 +35,57 @@
         height: 100%;
         flex: 1;
       }
+      /* Mobile browsers resize their address/toolbar without updating `vh`,
+         so a plain `height: 100%` (resolved against `100vh`) falls short of
+         the REAL visible viewport on phones — showing as a blank strip of
+         the browser's own white background below the app. `100dvh` tracks
+         the actual visible area and is supported by every mobile browser
+         this app targets; `100%`/`100vh` above remain the fallback for the
+         rare engine that doesn't understand it. */
+      @supports (height: 100dvh) {
+        html,
+        body {
+          height: 100dvh;
+        }
+        #root {
+          height: 100dvh;
+        }
+      }
+      /* Backstop for that same gap: if anything still falls short by a pixel
+         or two, it should read as the app's own background, not a jarring
+         white flash, on either theme. */
+      html,
+      body {
+        background-color: #fbf7f0;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background-color: #0b1115;
+        }
+      }
+      /* react-native-web's <TextInput> renders to a real DOM <input>/
+         <textarea> — something native iOS/Android has no equivalent of at
+         all, so this can only ever be a web concern — which the browser
+         gives its own default blue focus ring. The app already shows its
+         own focus/active cues per-field (border-colour changes driven by
+         component state), so that ring is redundant and clashes with the
+         theme. Removed for mouse/touch focus; kept (in the app's own brass
+         accent, not blue) for :focus-visible so keyboard users still get a
+         cue — normal browser behaviour already limits :focus-visible to
+         keyboard/programmatic focus, not taps/clicks. */
+      input,
+      textarea,
+      select {
+        outline: none;
+        box-shadow: none;
+      }
+      input:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible {
+        outline: 2px solid rgba(176, 134, 65, 0.55);
+        outline-offset: 1px;
+      }
     </style>
   </head>
 

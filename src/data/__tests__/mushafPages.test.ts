@@ -5,11 +5,24 @@ import type { SurahContent } from '../quranApi';
 // mushafPages assembles pages purely from getSurahContent + the per-ayah `page`
 // field. getSurahContent serves from AsyncStorage before ever touching the
 // network, so seeding storage directly (under a NON-default translation id so
-// the bundled offline combo is skipped) exercises the assembler without any
-// fetch mocking. A unique translation id per suite run also side-steps the
-// module-level in-memory cache carrying state between assertions.
+// the bundled offline combo is skipped) exercises the assembler for every
+// surah actually in the synthetic corpus below. A unique translation id per
+// suite run also side-steps the module-level in-memory cache carrying state
+// between assertions.
+//
+// Surahs deliberately left OUT of the corpus (the "gaps" the outward-walk
+// tests rely on) still fall through to a real network fetch inside
+// getSurahContent once AsyncStorage/bundled data both miss. Without a mock,
+// that fetch has nothing to reach in a sandboxed/offline test run and hangs
+// well past Jest's default timeout instead of failing fast — mocking fetch to
+// reject immediately is what actually makes "this surah is absent" behave
+// deterministically, matching what the assembler needs to see.
 const TR = 'test.mushaf';
 const SCRIPT = 'uthmani';
+
+beforeAll(() => {
+  (global as any).fetch = jest.fn().mockRejectedValue(new Error('network disabled in tests'));
+});
 
 function storageKey(surah: number): string {
   // Matches quranApi's cacheKey shape for a non-default translation on the

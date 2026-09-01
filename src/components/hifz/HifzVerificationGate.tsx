@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, ActivityIndicator, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { File } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useStrings } from '@/i18n/strings';
@@ -9,7 +8,7 @@ import { useAppStore } from '@/store/appStore';
 import { getSurahContent, type Ayah } from '@/data/quranApi';
 import { arabicFontFor, arabicLineHeight as arabicLineHeightFor } from '@/lib/quranText';
 import { parseTajweedForRender, stripTajweed, TAJWEED_COLORS } from '@/lib/tajweed';
-import { getRecitationFeedback, tajweedRulesIn, IslamicAiError, type RecitationFeedback } from '@/lib/recitationAi';
+import { getRecitationFeedback, readRecordingForFeedback, tajweedRulesIn, IslamicAiError, type RecitationFeedback } from '@/lib/recitationAi';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { InlineNotice } from '@/components/InlineNotice';
@@ -85,8 +84,8 @@ export function HifzVerificationGate({ surah, ayahNumbers, passMark, onComplete,
     setAnalyzing(true);
     rec.setErrorMsg(null);
     try {
-      const base64 = await new File(rec.recordingUri).base64();
-      const result = await getRecitationFeedback(plainArabic, rules, base64, 'audio/aac');
+      const { base64, mimeType } = await readRecordingForFeedback(rec.recordingUri);
+      const result = await getRecitationFeedback(plainArabic, rules, base64, mimeType);
       setFeedback(result);
       addRecitationAttempt({
         id: `${surah}:${ayahNumber}:${Date.now()}`,
