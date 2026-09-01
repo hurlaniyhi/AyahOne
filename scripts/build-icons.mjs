@@ -1,6 +1,7 @@
 // Render the AyahOne icon SVG masters in `assets/source/` to the PNGs
 // referenced by `app.json` (`assets/icon.png`, `assets/android-icon-*.png`,
-// `assets/favicon.png`, `assets/splash-icon.png`).
+// `assets/favicon.png`, `assets/splash-icon.png`) AND the web PWA icons under
+// `public/` (manifest icons + apple-touch-icon) consumed by app/+html.tsx.
 //
 // Usage:  node scripts/build-icons.mjs
 //
@@ -15,11 +16,15 @@ import sharp from 'sharp';
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(__filename), '..');
 const SRC = path.join(ROOT, 'assets', 'source');
-const OUT = path.join(ROOT, 'assets');
+const ASSETS_OUT = path.join(ROOT, 'assets');
+const PUBLIC_OUT = path.join(ROOT, 'public');
 
 // Each entry: source SVG → destination PNG (with the size Android / iOS /
 // Expo expect). 1024 is the standard "high-res" master size; expo-build
-// downscales as needed at build time.
+// downscales as needed at build time. `dir` defaults to ASSETS_OUT; `bg`
+// defaults to transparent (native icon pipelines composite their own
+// background/mask) — set an opaque colour for outputs like apple-touch-icon
+// that iOS expects to be full-bleed rather than pre-rounded/transparent.
 const TARGETS = [
   { src: 'icon.svg',             out: 'icon.png',                     size: 1024 },
   { src: 'icon.svg',             out: 'splash-icon.png',              size: 1024 },
@@ -27,26 +32,36 @@ const TARGETS = [
   { src: 'icon-foreground.svg',  out: 'android-icon-foreground.png',  size: 1024 },
   { src: 'icon-background.svg',  out: 'android-icon-background.png',  size: 1024 },
   { src: 'icon-monochrome.svg',  out: 'android-icon-monochrome.png',  size: 1024 },
+  // PWA manifest icons (web/+html.tsx + public/manifest.json). The source
+  // squircle already fills nearly the whole canvas with only its four
+  // corners transparent, so it reads fine as a "maskable" icon too without a
+  // separate safe-zone-padded master.
+  { src: 'icon.svg', out: 'icon-192.png', size: 192, dir: path.join(PUBLIC_OUT, 'icons') },
+  { src: 'icon.svg', out: 'icon-512.png', size: 512, dir: path.join(PUBLIC_OUT, 'icons') },
+  // iOS home-screen icon: expected full-bleed (no transparency) since iOS
+  // applies its own corner rounding/shine on top.
+  { src: 'icon.svg', out: 'apple-touch-icon.png', size: 180, dir: PUBLIC_OUT, bg: { r: 0x0f, g: 0x6b, b: 0x5c, alpha: 1 } },
 ];
 
-async function render(srcFile, outFile, size) {
+async function render(srcFile, outFile, size, dir, bg) {
   const srcPath = path.join(SRC, srcFile);
-  const outPath = path.join(OUT, outFile);
+  const outPath = path.join(dir, outFile);
+  await fs.mkdir(dir, { recursive: true });
   const svg = await fs.readFile(srcPath);
   // density: 300 gives a high-res rasterization of the SVG before sharp's
   // final resize, which keeps vector edges crisp at any output size.
   await sharp(svg, { density: 384 })
-    .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize(size, size, { fit: 'contain', background: bg ?? { r: 0, g: 0, b: 0, alpha: 0 } })
     .png({ compressionLevel: 9 })
     .toFile(outPath);
   const stat = await fs.stat(outPath);
-  console.log(`  ${outFile.padEnd(34)} ${size}x${size}   ${(stat.size / 1024).toFixed(1).padStart(6)} KB`);
+  console.log(`  ${path.relative(ROOT, outPath).padEnd(40)} ${size}x${size}   ${(stat.size / 1024).toFixed(1).padStart(6)} KB`);
 }
 
 async function main() {
   console.log('Rendering AyahOne icons →');
   for (const t of TARGETS) {
-    await render(t.src, t.out, t.size);
+    await render(t.src, t.out, t.size, t.dir ?? ASSETS_OUT, t.bg);
   }
   console.log('Done.');
 }

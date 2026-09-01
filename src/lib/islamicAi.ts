@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 // Islamic Q&A backend powered by Google Gemini's free tier. The system
 // instruction is the only guardrail keeping responses scoped to Islam +
 // grounded in primary sources; tweaking it changes the assistant's
@@ -5,6 +7,14 @@
 //
 // Setup: add `EXPO_PUBLIC_GEMINI_API_KEY=...` to a `.env` at the repo root.
 // Expo Router exposes that value to the bundled app via `process.env`.
+//
+// Web is the one exception: `EXPO_PUBLIC_*` vars are inlined into the client
+// bundle, which is fine for a compiled native binary but means anyone
+// visiting the deployed website could read the key straight out of the JS
+// and spend the quota. The web build instead calls `/api/gemini` (a Vercel
+// Edge Function, see `api/gemini.ts`), which holds the real key server-side
+// as `GEMINI_API_KEY` (no EXPO_PUBLIC_ prefix). Native is untouched — it
+// still calls Gemini directly with the embedded key, exactly as before.
 
 // gemini-2.0-flash was shut down on 2026-06-01; the recommended replacement
 // is gemini-3.5-flash. Same v1beta endpoint, same `x-goog-api-key` header,
@@ -135,6 +145,11 @@ export class IslamicAiError extends Error {
 }
 
 export function hasApiKey(): boolean {
+  // On web the key lives server-side (see the module comment above) — the
+  // client can't see it, so assume it's configured. If it isn't, /api/gemini
+  // returns a 500 that surfaces through the same error UI as any other
+  // failure, rather than a network round-trip just to answer this check.
+  if (Platform.OS === 'web') return true;
   return !!process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 }
 
@@ -175,8 +190,12 @@ export async function callGeminiJson(opts: {
   maxOutputTokens?: number;
   maxAttempts?: number;
 }): Promise<any> {
+  const isWeb = Platform.OS === 'web';
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-  if (!apiKey) throw new IslamicAiError('Missing EXPO_PUBLIC_GEMINI_API_KEY', 'no-key');
+  // Native only: the web build has no client-side key to check (see module
+  // comment) — a missing server-side key surfaces as an HTTP error from
+  // /api/gemini instead, handled by the same retry/error path below.
+  if (!isWeb && !apiKey) throw new IslamicAiError('Missing EXPO_PUBLIC_GEMINI_API_KEY', 'no-key');
 
   const maxAttempts = opts.maxAttempts ?? __retryConfig.maxAttempts;
 
@@ -206,8 +225,11 @@ export async function callGeminiJson(opts: {
   // parse, MAX_TOKENS) would fail identically on any model, so they short-circuit.
   let lastError: IslamicAiError | undefined;
   for (const model of __models) {
-    const endpoint = endpointFor(model.id);
-    const body = bodyFor(model);
+    // Web routes through the proxy, which needs to know which model to call
+    // (it owns the actual Gemini endpoint); native hits Gemini directly, same
+    // as always.
+    const endpoint = isWeb ? '/api/gemini' : endpointFor(model.id);
+    const body = isWeb ? { model: model.id, ...bodyFor(model) } : bodyFor(model);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (attempt > 1) await sleep(__retryConfig.delayMs(attempt - 1));
@@ -216,7 +238,9 @@ export async function callGeminiJson(opts: {
       try {
         resp = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          headers: isWeb
+            ? { 'Content-Type': 'application/json' }
+            : { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey! },
           body: JSON.stringify(body),
         });
       } catch (e) {

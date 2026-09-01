@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <title>%WEB_TITLE%</title>
+    <meta name="description" content="A calm, beautiful mushaf that adapts to how you read — Quran reading, recitation practice, hifz, and tafsir." />
+
+    <!-- PWA installability -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0F6B5C" />
+
+    <!-- iOS "Add to Home Screen" — Safari ignores most of the manifest and
+         needs its own meta tags + a dedicated touch icon. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AyahOne" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+    <!-- Registers the service worker (public/sw.js) so the app shell can be
+         installed and re-launched offline. Errors are swallowed — an
+         unsupported browser, or a plain `expo start --web` dev server
+         without HTTPS, just doesn't get the offline/installable behaviour. -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>
