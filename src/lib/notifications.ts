@@ -151,7 +151,52 @@ function nextWeeklyAt(weekday: number, hour: number, minute: number, skip = fals
   return d;
 }
 
+// expo-notifications has no real scheduler on web: its web module
+// (NotificationScheduler.ts) is an empty stub with no
+// `scheduleNotificationAsync`/`cancelScheduledNotificationAsync`, so those
+// calls throw UnavailabilityError there — every reminder silently failed to
+// schedule. This shim uses setTimeout + the browser's own Notification API
+// instead. It can only fire while this tab/PWA is actually open (no OS-level
+// wake-up for a closed tab without a push server + service worker), but
+// `syncReminders` already re-runs on every foreground/relevant state change,
+// so timers get recomputed from "now" each time the app is reopened — a
+// missed-while-closed reminder is simply skipped, same as it silently was
+// before, but one that lands while the app is open now actually shows.
+const webTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+function webCancel(id: string) {
+  const t = webTimers.get(id);
+  if (t) {
+    clearTimeout(t);
+    webTimers.delete(id);
+  }
+}
+
+function webSchedule(id: string, date: Date, title: string, body: string) {
+  webCancel(id);
+  const delay = date.getTime() - Date.now();
+  if (delay <= 0 || delay > MAX_TIMEOUT_MS) return;
+  webTimers.set(
+    id,
+    setTimeout(() => {
+      webTimers.delete(id);
+      try {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification(title, { body });
+        }
+      } catch {
+        /* noop */
+      }
+    }, delay),
+  );
+}
+
 async function safeCancel(id: string) {
+  if (Platform.OS === 'web') {
+    webCancel(id);
+    return;
+  }
   try { await Notifications.cancelScheduledNotificationAsync(id); } catch { /* noop */ }
 }
 
@@ -199,6 +244,11 @@ export async function syncReminders(): Promise<void> {
         });
   for (let i = 0; i < goalSlots.length; i++) {
     const slot = goalSlots[i];
+    const date = nextDailyAt(slot.h, slot.m, goalMet);
+    if (Platform.OS === 'web') {
+      webSchedule(`${ID_DAILY_GOAL}-${i}`, date, t.notifGoalGreeting, goalBody);
+      continue;
+    }
     await Notifications.scheduleNotificationAsync({
       identifier: `${ID_DAILY_GOAL}-${i}`,
       content: {
@@ -212,7 +262,7 @@ export async function syncReminders(): Promise<void> {
       // Without it Android 8+ silently drops the alert (no banner, no sound).
       trigger: {
         type: SchedulableTriggerInputTypes.DATE,
-        date: nextDailyAt(slot.h, slot.m, goalMet),
+        date,
         channelId: 'default',
       },
     });
@@ -232,6 +282,11 @@ export async function syncReminders(): Promise<void> {
       : t.notifKahfNotStarted;
   for (let i = 0; i < kahfSlots.length; i++) {
     const slot = kahfSlots[i];
+    const date = nextWeeklyAt(KAHF_WEEKDAY, slot.h, slot.m, kahfDoneToday);
+    if (Platform.OS === 'web') {
+      webSchedule(`${ID_FRIDAY_KAHF}-${i}`, date, t.notifKahfTitle, kahfBody);
+      continue;
+    }
     await Notifications.scheduleNotificationAsync({
       identifier: `${ID_FRIDAY_KAHF}-${i}`,
       content: {
@@ -242,7 +297,7 @@ export async function syncReminders(): Promise<void> {
       },
       trigger: {
         type: SchedulableTriggerInputTypes.DATE,
-        date: nextWeeklyAt(KAHF_WEEKDAY, slot.h, slot.m, kahfDoneToday),
+        date,
         channelId: 'default',
       },
     });
