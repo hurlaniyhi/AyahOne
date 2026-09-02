@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useMemo } from 'react';
-import { useColorScheme } from 'react-native';
+import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import { Platform, useColorScheme } from 'react-native';
 import { useAppStore } from '@/store/appStore';
 import { ACCENTS, DARK, LIGHT, getAccent, type AccentPalette, type ThemeColors } from './palettes';
 
@@ -48,6 +48,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     motion: { fast: 120, base: 220, slow: 360 },
     pressedScale: 0.97,
   }), [mode, accentId]);
+
+  // public/index.html only has a static `prefers-color-scheme` guess for
+  // html/body's background (used as the backstop that shows through the
+  // safe-area strips iOS exposes via viewport-fit=cover — the status bar and
+  // home-indicator regions). That guess is wrong whenever the user has
+  // overridden the in-app theme away from their OS setting, showing a
+  // mismatched strip at the screen edges. Keeping the real DOM background in
+  // sync with the live theme here closes that gap; native has no DOM at all,
+  // so this is a no-op there.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    document.documentElement.style.backgroundColor = value.colors.background;
+    document.body.style.backgroundColor = value.colors.background;
+    // iOS paints the standalone-PWA status bar using this tag's value — keep
+    // it matched to the real background too, not just html/body, or the
+    // status bar reads as a separate-colored band from the app underneath it.
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', value.colors.background);
+  }, [value.colors.background]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

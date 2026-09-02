@@ -9,7 +9,13 @@
 
     <!-- PWA installability -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#0F6B5C" />
+    <!-- Matches the app's actual background (see palettes.ts LIGHT/DARK), not
+         the brand teal — iOS paints the standalone-app status bar with this,
+         so a mismatched value shows as a separate-colored band up top. The
+         light value here is only the pre-hydration guess for the common
+         default (system=light); ThemeProvider updates `content` in JS once
+         the real theme (which may override the OS scheme) is known. -->
+    <meta name="theme-color" content="#FBF7F0" />
 
     <!-- iOS "Add to Home Screen" — Safari ignores most of the manifest and
          needs its own meta tags + a dedicated touch icon. -->
