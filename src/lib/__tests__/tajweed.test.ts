@@ -367,3 +367,51 @@ describe('legend metadata', () => {
     expect(orderKeys).toEqual(colorKeys);
   });
 });
+
+describe('alif-maddah correction (quran-tajweed alif-drop bug)', () => {
+  // Real raw quran-tajweed text for 4:119, where the upstream edition drops
+  // the alif in وَلَءَامُرَنَّهُمْ ("and We would surely command them"),
+  // collapsing أَا (fixed hamza + alif) down to a bare أَ.
+  const RAW_4_119 =
+    'وَلَأُضِلَّ[g[نّ]َهُمْ وَلَأُمَ[g[نّ]ِيَ[g[نّ]َهُمْ وَلَأَمُرَ[g[نّ]َهُمْ فَلَيُبَتِّكُ[g[نّ]َ ءَاذَانَ [h:3141[ٱ]لْأَنْعَ[n[ـٰ]مِ وَلَأَمُرَ[g[نّ]َهُمْ فَلَيُغَيِّرُ[g[نّ]َ خَلْقَ [h:3142[ٱ]للَّهِ‌ۚ وَم[a:3143[َن ي]َتَّخِذِ [h:3144[ٱ][l[ل]شَّيْطَ[n[ـٰ]نَ وَلِي[a:3145[ًّا م]ِّ[f:107[ن د]ُونِ [h:108[ٱ]للَّهِ فَقَ[q:563[دْ] خَسِرَ خُسْرَا[a:3146[نًا م]ُّبِينًا';
+
+  it('restores the missing alif and matches the Uthmani spelling exactly (4:119)', () => {
+    const stripped = stripTajweed(RAW_4_119);
+    expect(stripped).toContain('وَلَءَامُرَنَّهُمْ');
+    expect(stripped.split('وَلَءَامُرَنَّهُمْ').length - 1).toBe(2);
+  });
+
+  it('keeps the render path consistent with the strip path, and preserves tajweed colouring (4:119)', () => {
+    const segs = parseTajweedForRender(RAW_4_119);
+    const flat = segs.map((s) => s.text).join('');
+    // Rendering must reproduce exactly the same plain text stripTajweed produces
+    // (used for hasanat counting / search) — the two must never diverge.
+    expect(flat).toBe(stripTajweed(RAW_4_119));
+    expect(flat).toContain('وَلَءَامُرَنَّهُمْ');
+    // The fix must not have erased the ghunnah (g) colouring elsewhere in the ayah.
+    expect(segs.some((s) => s.rule === 'g')).toBe(true);
+  });
+
+  // 2:8 mixes a word-initial hamza (ءَامَنَّا "believed", unaffected)
+  // with a non-word-initial one (الْءَاخِرِ "the Hereafter", affected) in the same ayah.
+  const RAW_2_8 =
+    'وَمِنَ [h:30[ٱ][l[ل][g[نّ]َاسِ م[a:31[َن ي]َقُولُ ءَامَ[g[نّ]َا بِ[h:32[ٱ]للَّهِ وَبِ[h:33[ٱ]لْيَوْمِ [h:34[ٱ]لْأَخِرِ وَمَا ه[c:35[ُم ب]ِمُؤْمِن[p[ِي]نَ';
+
+  it('only fixes the non-word-initial occurrence, leaving the word-initial one alone (2:8)', () => {
+    const stripped = stripTajweed(RAW_2_8);
+    expect(stripped).toContain('يَقُولُ ءَامَنَّا'); // word-initial hamza untouched
+    expect(stripped).toContain('ٱلْءَاخِرِ'); // non-word-initial occurrence, fixed
+  });
+
+  // Common unrelated words that also contain a bare أَ not followed by ا — a
+  // structural "insert alif after any non-initial أَ" rule would have corrupted
+  // these; the word-form lookup must leave them completely unchanged.
+  it.each([
+    ['مِنْ أَحَدٍ إِلَّا', 'أَحَدٍ ("one")'],
+    ['إِبْلِيسَ أَبَىٰ', 'أَبَىٰ ("he refused")'],
+    ['وَرَأَيْتَ النَّاسَ', 'رَأَيْتَ ("you saw")'],
+    ['يَعْلَمُونَ أَنَّ اللَّهَ', 'أَنَّ ("that")'],
+  ])('leaves unrelated word %s (%s) unchanged', (input) => {
+    expect(stripTajweed(input)).toBe(input);
+  });
+});
