@@ -7,7 +7,6 @@
     "icon": "./assets/icon.png",
     "scheme": "ayahone",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "plugins": [
       "expo-router",
       "expo-localization",
@@ -24,7 +23,8 @@
         {
           "microphonePermission": "Allow AyahOne to access your microphone so you can practice reciting and receive feedback."
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "ios": {
       "supportsTablet": true,

@@ -3,7 +3,11 @@ import { View, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+// expo-router fully vendors its own copy of react-navigation as of SDK 57
+// (it no longer depends on the standalone @react-navigation/* packages), so
+// the type its <Tabs tabBar={...}> render prop actually passes only matches
+// this internal path, not the external @react-navigation/bottom-tabs package.
+import type { BottomTabBarProps } from 'expo-router/build/react-navigation/bottom-tabs';
 import { useTheme } from '@/theme/ThemeProvider';
 import { GlassDock } from './GlassDock';
 
