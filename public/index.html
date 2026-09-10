@@ -26,22 +26,20 @@
 
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
-      /* These styles make the body full-height */
-      html,
-      body {
-        height: 100%;
-      }
-      /* Pins html/body to all four viewport edges instead of relying on a
-         computed height. On iOS standalone (home-screen) PWAs specifically,
-         a plain `height: 100%`/`100dvh` on a normal-flow element can fall
-         just short of the true bottom edge — the sliver behind it is then
-         outside the page's own background entirely and Safari fills it
-         with its own default (white), showing as a solid bar exactly the
-         height of the home-indicator safe area, in either theme. Pinning
-         all four edges with `position: fixed` ties the box directly to the
-         viewport's actual edges (which, combined with `viewport-fit=cover`
-         above, include the safe areas) regardless of how any height
-         calculation resolves. */
+      /* Pins html/body to all four viewport edges rather than giving them
+         any computed `height` at all. On iOS standalone (home-screen) PWAs,
+         `window.innerHeight`/`100dvh` both measure the height of the "safe"
+         content area *below the status bar* (e.g. 894px on a 956px-tall
+         screen — exactly the 62px status-bar height short). `viewport-fit=
+         cover` above extends the actual viewport `position: fixed` anchors
+         against to the FULL physical screen, including under the status bar
+         — so giving this box an explicit height of 894px while its `top`
+         pins to row 0 of that full viewport leaves exactly the bottom 62px
+         uncovered (a solid bar in whichever theme's fallback colour, below
+         — this combination was tried and produces exactly that gap; do not
+         reintroduce it). Leaving `height` unset and letting `top`/`bottom`
+         both pin to 0 is the one approach that isn't shorter than the true
+         screen on either edge, on any relaunch, without any JS at all. */
       html,
       body {
         position: fixed;
@@ -55,43 +53,16 @@
       body {
         overflow: hidden;
       }
-      /* These styles make the root element full-height */
+      /* These styles make the root element full-height. Deliberately `100%`
+         (of body's now-correctly-full-bleed height) and NOT `100dvh` — dvh
+         is a viewport-relative unit even on a normal-flow element like this
+         one, so it would independently reintroduce the exact status-bar
+         shortfall explained above, this time between #root and body instead
+         of between body and the screen. */
       #root {
         display: flex;
         height: 100%;
         flex: 1;
-      }
-      /* Mobile browsers resize their address/toolbar without updating `vh`,
-         so a plain `height: 100%` (resolved against `100vh`) falls short of
-         the REAL visible viewport on phones — showing as a blank strip of
-         the browser's own white background below the app. `100dvh` tracks
-         the actual visible area on most engines, so it's the fallback here
-         for browsers that support it but don't run the script below (or
-         before that script's first paint); `100%`/`100vh` above remain the
-         fallback for the rare engine that understands neither. */
-      @supports (height: 100dvh) {
-        html,
-        body {
-          height: 100dvh;
-        }
-        #root {
-          height: 100dvh;
-        }
-      }
-      /* Precise fix for the same gap on iOS standalone (home-screen) PWAs:
-         `100dvh` is a *CSS* unit and on iOS's standalone display-mode it is
-         sometimes computed once against a stale layout-viewport reading
-         after a full close+reopen (not just backgrounding), rather than the
-         real visible area — leaving a growing white strip at the bottom
-         that a pure-CSS rule can't self-correct without a reflow. The
-         script below measures the actual viewport in JS on load and on
-         every event that can change it, and writes the exact pixel value
-         here — overriding the `dvh` rule above whenever it's present and
-         correct.  */
-      html.js-app-height,
-      html.js-app-height body,
-      html.js-app-height #root {
-        height: var(--app-height);
       }
       /* Backstop for that same gap: if anything still falls short by a pixel
          or two, it should read as the app's own background, not a jarring
@@ -134,26 +105,6 @@
         }
       }
     </style>
-    <!-- Companion to the `--app-height` rule above: measures the real
-         viewport in JS and keeps it current. Runs before the app mounts so
-         there's no flash, and re-runs on `pageshow` — the event that fires
-         when a standalone PWA is reopened from the home screen after being
-         fully closed, which is exactly when the plain CSS `dvh` unit above
-         has been seen to compute against a stale viewport reading. -->
-    <script>
-      (function () {
-        function setAppHeight() {
-          var h = window.innerHeight;
-          if (!h) return;
-          document.documentElement.style.setProperty('--app-height', h + 'px');
-          document.documentElement.classList.add('js-app-height');
-        }
-        setAppHeight();
-        window.addEventListener('resize', setAppHeight);
-        window.addEventListener('orientationchange', setAppHeight);
-        window.addEventListener('pageshow', setAppHeight);
-      })();
-    </script>
   </head>
 
   <body>
