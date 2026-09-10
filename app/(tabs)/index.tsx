@@ -51,8 +51,8 @@ export default function HomeScreen() {
   const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon
 
   return (
-    <SafeAreaView nativeID="pwa-debug-safearea" style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
-      <ScrollView nativeID="pwa-debug-scrollview" style={{ flex: 1 }} contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
         {/* Header — compact identity row, no gauge on the right */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: t.spacing(3) }}>

@@ -10,12 +10,18 @@
     <!-- PWA installability -->
     <link rel="manifest" href="/manifest.json" />
     <!-- Matches the app's actual background (see palettes.ts LIGHT/DARK), not
-         the brand teal — iOS paints the standalone-app status bar with this,
-         so a mismatched value shows as a separate-colored band up top. The
-         light value here is only the pre-hydration guess for the common
-         default (system=light); ThemeProvider updates `content` in JS once
-         the real theme (which may override the OS scheme) is known. -->
-    <meta name="theme-color" content="#FBF7F0" />
+         the brand teal — iOS paints the standalone-app status bar (and, in
+         some iOS versions, the home-indicator safe-area strip) using this.
+         Two media-conditioned tags rather than one static value + a JS
+         update: some of that native chrome-colouring is read from the
+         static/media-matched meta value at parse time and does NOT react to
+         later `content` mutations from ThemeProvider's effect — that JS
+         update still matters (it's what lets an in-app theme override beat
+         the OS preference, which no media query can express), but the
+         media-conditioned pair here is what fixes the two contexts that
+         only ever see the initial value. -->
+    <meta name="theme-color" content="#FBF7F0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0B1115" media="(prefers-color-scheme: dark)" />
 
     <!-- iOS "Add to Home Screen" — Safari ignores most of the manifest and
          needs its own meta tags + a dedicated touch icon. -->

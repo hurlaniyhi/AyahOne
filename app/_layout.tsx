@@ -11,7 +11,6 @@ import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { hydrateAppStore, useAppStore } from '@/store/appStore';
 import { bootstrapQuranCache } from '@/lib/precacheBootstrap';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
-import { PwaDebugOverlay } from '@/components/PwaDebugOverlay'; // TEMPORARY — remove once the PWA bottom-space bug is diagnosed
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { KahfCelebrationModal } from '@/components/KahfCelebrationModal';
@@ -103,7 +102,6 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <AppGate bootReady={bootReady && splashDone} onSplashDone={() => setSplashDone(true)} />
-          {Platform.OS === 'web' && <PwaDebugOverlay />}
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
