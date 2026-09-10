@@ -31,6 +31,26 @@
       body {
         height: 100%;
       }
+      /* Pins html/body to all four viewport edges instead of relying on a
+         computed height. On iOS standalone (home-screen) PWAs specifically,
+         a plain `height: 100%`/`100dvh` on a normal-flow element can fall
+         just short of the true bottom edge — the sliver behind it is then
+         outside the page's own background entirely and Safari fills it
+         with its own default (white), showing as a solid bar exactly the
+         height of the home-indicator safe area, in either theme. Pinning
+         all four edges with `position: fixed` ties the box directly to the
+         viewport's actual edges (which, combined with `viewport-fit=cover`
+         above, include the safe areas) regardless of how any height
+         calculation resolves. */
+      html,
+      body {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+      }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
         overflow: hidden;
