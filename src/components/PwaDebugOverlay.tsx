@@ -22,33 +22,40 @@ export function PwaDebugOverlay() {
       const rootRect = rootEl?.getBoundingClientRect();
       const tabBarEl = document.getElementById('pwa-debug-tabbar');
       const tabBarRect = tabBarEl?.getBoundingClientRect();
+      const safeAreaEl = document.getElementById('pwa-debug-safearea');
+      const safeAreaRect = safeAreaEl?.getBoundingClientRect();
+      const scrollEl = document.getElementById('pwa-debug-scrollview');
+      const scrollRect = scrollEl?.getBoundingClientRect();
       setWebInfo({
         innerHeight: window.innerHeight,
         bodyTop: Math.round(bodyRect.top),
         bodyBottom: Math.round(bodyRect.bottom),
-        bodyHeight: Math.round(bodyRect.height),
-        rootTop: rootRect ? Math.round(rootRect.top) : -1,
         rootBottom: rootRect ? Math.round(rootRect.bottom) : -1,
-        rootHeight: rootRect ? Math.round(rootRect.height) : -1,
+        safeAreaTop: safeAreaRect ? Math.round(safeAreaRect.top) : -1,
+        safeAreaBottom: safeAreaRect ? Math.round(safeAreaRect.bottom) : -1,
+        scrollViewTop: scrollRect ? Math.round(scrollRect.top) : -1,
+        scrollViewBottom: scrollRect ? Math.round(scrollRect.bottom) : -1,
+        scrollContentHeight: scrollEl ? scrollEl.scrollHeight : -1,
         tabBarTop: tabBarRect ? Math.round(tabBarRect.top) : -1,
         tabBarBottom: tabBarRect ? Math.round(tabBarRect.bottom) : -1,
-        tabBarHeight: tabBarRect ? Math.round(tabBarRect.height) : -1,
+        gapAboveTabBar: tabBarRect && scrollRect ? Math.round(tabBarRect.top - scrollRect.bottom) : -1,
         gapBelowTabBar: tabBarRect ? Math.round(window.innerHeight - tabBarRect.bottom) : -1,
         standalone: window.matchMedia('(display-mode: standalone)').matches ? 1 : 0,
-        devicePixelRatio: window.devicePixelRatio,
         screenHeight: window.screen?.height ?? -1,
       });
     };
     read();
-    // Layout can settle a moment after mount (fonts, async content), so
-    // re-measure shortly after too, not just on resize/pageshow.
-    const t1 = setTimeout(read, 300);
-    const t2 = setTimeout(read, 1200);
+    // This overlay mounts once, immediately, alongside the splash screen —
+    // long before the tab bar exists in the DOM. Re-measuring on a fixed
+    // delay isn't reliable (splash duration varies with font/store load
+    // time), so poll continuously instead: whatever's on screen when this
+    // is read/screenshotted is always current, regardless of which screen
+    // (splash, onboarding, tab bar) is actually showing at the time.
+    const interval = setInterval(read, 500);
     window.addEventListener('resize', read);
     window.addEventListener('pageshow', read);
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
+      clearInterval(interval);
       window.removeEventListener('resize', read);
       window.removeEventListener('pageshow', read);
     };
