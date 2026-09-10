@@ -71,7 +71,7 @@ export default function HifzSetupScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: t.spacing(5), paddingBottom: t.spacing(8) }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ gap: t.spacing(5), paddingBottom: t.spacing(8) }} showsVerticalScrollIndicator={false}>
           <Text style={{ color: t.colors.textMuted, textAlign: 'center', fontSize: 13, lineHeight: 19, paddingHorizontal: t.spacing(3) }}>
             {s.hifzSetupSubtitle}
           </Text>

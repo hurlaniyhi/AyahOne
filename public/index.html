@@ -10,18 +10,12 @@
     <!-- PWA installability -->
     <link rel="manifest" href="/manifest.json" />
     <!-- Matches the app's actual background (see palettes.ts LIGHT/DARK), not
-         the brand teal — iOS paints the standalone-app status bar (and, in
-         some iOS versions, the home-indicator safe-area strip) using this.
-         Two media-conditioned tags rather than one static value + a JS
-         update: some of that native chrome-colouring is read from the
-         static/media-matched meta value at parse time and does NOT react to
-         later `content` mutations from ThemeProvider's effect — that JS
-         update still matters (it's what lets an in-app theme override beat
-         the OS preference, which no media query can express), but the
-         media-conditioned pair here is what fixes the two contexts that
-         only ever see the initial value. -->
-    <meta name="theme-color" content="#FBF7F0" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0B1115" media="(prefers-color-scheme: dark)" />
+         the brand teal — iOS paints the standalone-app status bar with this,
+         so a mismatched value shows as a separate-colored band up top. The
+         light value here is only the pre-hydration guess for the common
+         default (system=light); ThemeProvider updates `content` in JS once
+         the real theme (which may override the OS scheme) is known. -->
+    <meta name="theme-color" content="#FBF7F0" />
 
     <!-- iOS "Add to Home Screen" — Safari ignores most of the manifest and
          needs its own meta tags + a dedicated touch icon. -->
@@ -32,54 +26,36 @@
 
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
-      /* Pins html/body to all four viewport edges rather than giving them
-         any computed `height` at all. On iOS standalone (home-screen) PWAs,
-         `window.innerHeight`/`100dvh` both measure the height of the "safe"
-         content area *below the status bar* (e.g. 894px on a 956px-tall
-         screen — exactly the 62px status-bar height short). `viewport-fit=
-         cover` above extends the actual viewport `position: fixed` anchors
-         against to the FULL physical screen, including under the status bar
-         — so giving this box an explicit height of 894px while its `top`
-         pins to row 0 of that full viewport leaves exactly the bottom 62px
-         uncovered (a solid bar in whichever theme's fallback colour, below
-         — this combination was tried and produces exactly that gap; do not
-         reintroduce it). Leaving `height` unset and letting `top`/`bottom`
-         both pin to 0 is the one approach that isn't shorter than the true
-         screen on either edge, on any relaunch, without any JS at all. */
+      /* These styles make the body full-height */
       html,
       body {
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        left: 0;
-        width: 100%;
+        height: 100%;
       }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
         overflow: hidden;
       }
-      /* iOS Safari's rubber-band/bounce overscroll effect reveals the
-         browser's own default white background at the page edges — a
-         separate mechanism from anything above, and one that isn't
-         controlled by html/body's `background-color` at all. `overflow:
-         hidden` alone doesn't reliably suppress it in standalone PWA mode
-         on every iOS version; `overscroll-behavior: none` is the property
-         specifically meant to disable the bounce/reveal itself. */
-      html,
-      body {
-        overscroll-behavior: none;
-      }
-      /* These styles make the root element full-height. Deliberately `100%`
-         (of body's now-correctly-full-bleed height) and NOT `100dvh` — dvh
-         is a viewport-relative unit even on a normal-flow element like this
-         one, so it would independently reintroduce the exact status-bar
-         shortfall explained above, this time between #root and body instead
-         of between body and the screen. */
+      /* These styles make the root element full-height */
       #root {
         display: flex;
         height: 100%;
         flex: 1;
+      }
+      /* Mobile browsers resize their address/toolbar without updating `vh`,
+         so a plain `height: 100%` (resolved against `100vh`) falls short of
+         the REAL visible viewport on phones — showing as a blank strip of
+         the browser's own white background below the app. `100dvh` tracks
+         the actual visible area and is supported by every mobile browser
+         this app targets; `100%`/`100vh` above remain the fallback for the
+         rare engine that doesn't understand it. */
+      @supports (height: 100dvh) {
+        html,
+        body {
+          height: 100dvh;
+        }
+        #root {
+          height: 100dvh;
+        }
       }
       /* Backstop for that same gap: if anything still falls short by a pixel
          or two, it should read as the app's own background, not a jarring
@@ -100,26 +76,21 @@
          gives its own default blue focus ring. The app already shows its
          own focus/active cues per-field (border-colour changes driven by
          component state), so that ring is redundant and clashes with the
-         theme. Removed unconditionally on touch devices to match native
-         exactly (mobile Safari/Chrome's :focus-visible heuristics are
-         looser than desktop and can mark a plain tap as "visible", which is
-         what was showing the ring on the installed PWA); kept — in the
-         app's own brass accent, not blue — for :focus-visible on devices
-         with a precise pointer (mouse/trackpad), where it's reliably
-         keyboard/programmatic-only and still useful for accessibility. */
+         theme. Removed for mouse/touch focus; kept (in the app's own brass
+         accent, not blue) for :focus-visible so keyboard users still get a
+         cue — normal browser behaviour already limits :focus-visible to
+         keyboard/programmatic focus, not taps/clicks. */
       input,
       textarea,
       select {
         outline: none;
         box-shadow: none;
       }
-      @media (pointer: fine) {
-        input:focus-visible,
-        textarea:focus-visible,
-        select:focus-visible {
-          outline: 2px solid rgba(176, 134, 65, 0.55);
-          outline-offset: 1px;
-        }
+      input:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible {
+        outline: 2px solid rgba(176, 134, 65, 0.55);
+        outline-offset: 1px;
       }
     </style>
   </head>

@@ -293,7 +293,7 @@ export default function RecitationScreen() {
           {s.reciteHeaderTitle.toUpperCase()}
         </Text>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: t.spacing(4), paddingBottom: t.spacing(10) }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ gap: t.spacing(4), paddingBottom: t.spacing(10) }} showsVerticalScrollIndicator={false}>
           <Card watermark rounded="xl" style={{ padding: t.spacing(5) }}>
             {loadError && <Text style={{ color: t.colors.danger }}>{loadError}</Text>}
             {!ayah && !loadError && <ActivityIndicator color={t.accent.primary} />}

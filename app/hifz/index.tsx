@@ -119,7 +119,7 @@ export default function HifzHub() {
           </View>
         </View>
 
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: t.spacing(4), paddingBottom: t.spacing(8) }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ gap: t.spacing(4), paddingBottom: t.spacing(8) }} showsVerticalScrollIndicator={false}>
           <Text style={{ color: t.colors.textMuted, textAlign: 'center', fontSize: 13, lineHeight: 19, paddingHorizontal: t.spacing(3) }}>
             {s.hifzSubtitle}
           </Text>

@@ -313,7 +313,7 @@ export default function HifzPracticeScreen() {
         )}
 
         {ayahs && sessionQueue.length > 0 && !finished && current && (
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: t.spacing(4), paddingBottom: t.spacing(10) }} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={{ gap: t.spacing(4), paddingBottom: t.spacing(10) }} showsVerticalScrollIndicator={false}>
             <Text style={{ color: t.colors.textMuted, textAlign: 'center', fontSize: 13 }}>
               {s.hifzAyahOf.replace('{n}', String(sessionIndex + 1)).replace('{total}', String(sessionQueue.length))}
             </Text>
@@ -444,7 +444,7 @@ export default function HifzPracticeScreen() {
         )}
 
         {finished && needsVerification && !verifyDone && (
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: t.spacing(10), flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={{ paddingBottom: t.spacing(10), flexGrow: 1 }} showsVerticalScrollIndicator={false}>
             <HifzVerificationGate
               surah={surahNumber}
               ayahNumbers={verifyAyahNumbers}

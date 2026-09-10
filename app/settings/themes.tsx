@@ -275,7 +275,6 @@ export default function ThemesScreen() {
         </Text>
       </View>
       <ScrollView
-        style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: t.spacing(4),
           // Extra top padding so the floating checkmark badge on the top row

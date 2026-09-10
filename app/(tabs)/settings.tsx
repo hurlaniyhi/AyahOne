@@ -32,7 +32,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['top']}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(3) }}>
+      <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(3) }}>
         <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 28, marginBottom: t.spacing(1) }}>
           {s.settings}
         </Text>

@@ -64,15 +64,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     // iOS paints the standalone-PWA status bar using this tag's value — keep
     // it matched to the real background too, not just html/body, or the
     // status bar reads as a separate-colored band from the app underneath it.
-    // There are two theme-color tags now (one per prefers-color-scheme, see
-    // index.html) so the browser has a correct static value before JS runs;
-    // update BOTH here (not just whichever currently matches the OS scheme)
-    // so an in-app theme override still beats the OS preference — the tag
-    // for the *other* scheme needs the live colour too, in case the user
-    // later toggles it back to 'system' without a reload.
     document
-      .querySelectorAll('meta[name="theme-color"]')
-      .forEach(el => el.setAttribute('content', value.colors.background));
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', value.colors.background);
   }, [value.colors.background]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
