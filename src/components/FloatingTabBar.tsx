@@ -31,6 +31,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
 
   return (
     <View
+      nativeID="pwa-debug-tabbar" // TEMPORARY — for PwaDebugOverlay measurement; remove with the overlay
       style={{
         paddingHorizontal: t.spacing(4),
         paddingBottom: Math.max(insets.bottom, t.spacing(2)) + t.spacing(2),
