@@ -118,7 +118,7 @@ export default function QuranDisplayScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.colors.background }} edges={['bottom']}>
-      <ScrollView contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: t.spacing(4), paddingBottom: t.spacing(8), gap: t.spacing(4) }}>
         {/* Live preview — surfaceElevated card with brass arabesque corners
             so the Bismillah feels like a mushaf page rather than a swatch.
             Background/shadow, decorations, and the Arabic text each live on

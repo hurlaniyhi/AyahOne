@@ -527,6 +527,7 @@ export default function VerseReader() {
 
         {/* Verse card — parchment with arabesque watermark */}
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={{ gap: t.spacing(3), paddingBottom: t.spacing(28) }}
           showsVerticalScrollIndicator={false}
         >

@@ -192,6 +192,7 @@ export default function AskScreen() {
 
         <ScrollView
           ref={scrollRef}
+          style={{ flex: 1 }}
           contentContainerStyle={{ padding: t.spacing(4), gap: t.spacing(3), flexGrow: 1, paddingBottom: t.spacing(6) }}
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => {

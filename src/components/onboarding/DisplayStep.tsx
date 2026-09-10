@@ -47,7 +47,7 @@ export function DisplayStep({ nav }: { nav: OnbNav }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: t.spacing(5), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: t.spacing(5), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
         <StepHeader eyebrow={s.onbDisplayEyebrow} title={s.onbDisplayTitle} subtitle={s.onbDisplaySubtitle} align="left" />
 
         {/* Script chooser — compact cards with a live Arabic snippet. */}

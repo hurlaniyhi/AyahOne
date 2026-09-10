@@ -57,7 +57,7 @@ export function ReciterStep({ nav }: { nav: OnbNav }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: t.spacing(4), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: t.spacing(4), paddingTop: t.spacing(2), paddingBottom: t.spacing(3) }}>
         <StepHeader eyebrow={s.onbReciterEyebrow} title={s.onbReciterTitle} subtitle={s.onbReciterSubtitle} align="left" />
 
         <View style={{ gap: t.spacing(2) }}>
