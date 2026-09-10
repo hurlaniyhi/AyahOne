@@ -45,9 +45,10 @@
          so a plain `height: 100%` (resolved against `100vh`) falls short of
          the REAL visible viewport on phones — showing as a blank strip of
          the browser's own white background below the app. `100dvh` tracks
-         the actual visible area and is supported by every mobile browser
-         this app targets; `100%`/`100vh` above remain the fallback for the
-         rare engine that doesn't understand it. */
+         the actual visible area on most engines, so it's the fallback here
+         for browsers that support it but don't run the script below (or
+         before that script's first paint); `100%`/`100vh` above remain the
+         fallback for the rare engine that understands neither. */
       @supports (height: 100dvh) {
         html,
         body {
@@ -56,6 +57,21 @@
         #root {
           height: 100dvh;
         }
+      }
+      /* Precise fix for the same gap on iOS standalone (home-screen) PWAs:
+         `100dvh` is a *CSS* unit and on iOS's standalone display-mode it is
+         sometimes computed once against a stale layout-viewport reading
+         after a full close+reopen (not just backgrounding), rather than the
+         real visible area — leaving a growing white strip at the bottom
+         that a pure-CSS rule can't self-correct without a reflow. The
+         script below measures the actual viewport in JS on load and on
+         every event that can change it, and writes the exact pixel value
+         here — overriding the `dvh` rule above whenever it's present and
+         correct.  */
+      html.js-app-height,
+      html.js-app-height body,
+      html.js-app-height #root {
+        height: var(--app-height);
       }
       /* Backstop for that same gap: if anything still falls short by a pixel
          or two, it should read as the app's own background, not a jarring
@@ -76,23 +92,48 @@
          gives its own default blue focus ring. The app already shows its
          own focus/active cues per-field (border-colour changes driven by
          component state), so that ring is redundant and clashes with the
-         theme. Removed for mouse/touch focus; kept (in the app's own brass
-         accent, not blue) for :focus-visible so keyboard users still get a
-         cue — normal browser behaviour already limits :focus-visible to
-         keyboard/programmatic focus, not taps/clicks. */
+         theme. Removed unconditionally on touch devices to match native
+         exactly (mobile Safari/Chrome's :focus-visible heuristics are
+         looser than desktop and can mark a plain tap as "visible", which is
+         what was showing the ring on the installed PWA); kept — in the
+         app's own brass accent, not blue — for :focus-visible on devices
+         with a precise pointer (mouse/trackpad), where it's reliably
+         keyboard/programmatic-only and still useful for accessibility. */
       input,
       textarea,
       select {
         outline: none;
         box-shadow: none;
       }
-      input:focus-visible,
-      textarea:focus-visible,
-      select:focus-visible {
-        outline: 2px solid rgba(176, 134, 65, 0.55);
-        outline-offset: 1px;
+      @media (pointer: fine) {
+        input:focus-visible,
+        textarea:focus-visible,
+        select:focus-visible {
+          outline: 2px solid rgba(176, 134, 65, 0.55);
+          outline-offset: 1px;
+        }
       }
     </style>
+    <!-- Companion to the `--app-height` rule above: measures the real
+         viewport in JS and keeps it current. Runs before the app mounts so
+         there's no flash, and re-runs on `pageshow` — the event that fires
+         when a standalone PWA is reopened from the home screen after being
+         fully closed, which is exactly when the plain CSS `dvh` unit above
+         has been seen to compute against a stale viewport reading. -->
+    <script>
+      (function () {
+        function setAppHeight() {
+          var h = window.innerHeight;
+          if (!h) return;
+          document.documentElement.style.setProperty('--app-height', h + 'px');
+          document.documentElement.classList.add('js-app-height');
+        }
+        setAppHeight();
+        window.addEventListener('resize', setAppHeight);
+        window.addEventListener('orientationchange', setAppHeight);
+        window.addEventListener('pageshow', setAppHeight);
+      })();
+    </script>
   </head>
 
   <body>
