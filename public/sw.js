@@ -3,7 +3,7 @@
 // handled by the app's own data layer (AsyncStorage — see src/data/quranApi.ts),
 // so this SW only caches the static build output (JS bundle, manifest,
 // icons), never API/content requests.
-const CACHE_NAME = 'ayahone-shell-v3';
+const CACHE_NAME = 'ayahone-shell-v4';
 const APP_SHELL = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {

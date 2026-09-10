@@ -53,6 +53,17 @@
       body {
         overflow: hidden;
       }
+      /* iOS Safari's rubber-band/bounce overscroll effect reveals the
+         browser's own default white background at the page edges — a
+         separate mechanism from anything above, and one that isn't
+         controlled by html/body's `background-color` at all. `overflow:
+         hidden` alone doesn't reliably suppress it in standalone PWA mode
+         on every iOS version; `overscroll-behavior: none` is the property
+         specifically meant to disable the bounce/reveal itself. */
+      html,
+      body {
+        overscroll-behavior: none;
+      }
       /* These styles make the root element full-height. Deliberately `100%`
          (of body's now-correctly-full-bleed height) and NOT `100dvh` — dvh
          is a viewport-relative unit even on a normal-flow element like this
